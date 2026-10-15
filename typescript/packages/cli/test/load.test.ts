@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseIni, resolveCredentials } from "../src/credentials.js";
 import { loadConfig } from "../src/load.js";
 import { SCHEMA_PATH, validate } from "../src/schema.js";
-import { fakeApi } from "./fake-api.js";
+import { DEFAULTS, fakeApi } from "./fake-api.js";
 import { cli, project, read } from "./helpers.js";
 
 describe("the schema", () => {
@@ -160,9 +160,10 @@ describe("pull and convert", () => {
     });
     api.add("budgets", "acme", {
       model_id: "00000000-0000-7000-8000-00000000000a",
-      budget: { version: 3, headroom: 0.2 },
+      // The API returns whole documents, defaults included.
+      budget: { ...DEFAULTS.budget, headroom: 0.2 },
     });
-    api.add("retention", "acme", { rules: { version: 3, anchor_parts: 1 } });
+    api.add("retention", "acme", { rules: { ...DEFAULTS.retention, anchor_parts: 1 } });
     api.chatNamespaces.add("quiet");
     return api;
   }
@@ -178,6 +179,12 @@ describe("pull and convert", () => {
     );
     expect(yaml).toContain("claude-opus-5:");
     expect(yaml).not.toContain("quiet");
+    // Only what differs from the platform defaults, so the file keeps following them.
+    expect(yaml).toContain("headroom: 0.2");
+    expect(yaml).toContain("anchor_parts: 1");
+    expect(yaml).not.toContain("eager_compaction");
+    expect(yaml).not.toContain("max_history_tokens");
+    expect(yaml).not.toContain("verbatim_within");
     expect(await read(dir, "prompts/namespaces/acme/support.md")).toBe("Support rules.\n");
     const planned = await cli(api, dir, ["config", "plan"]);
     expect(planned.stdout).toContain("0 to publish, 0 to withdraw");

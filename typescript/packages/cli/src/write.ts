@@ -1,6 +1,7 @@
 // Writing configuration files: YAML with the schema comment, or TypeScript with defineConfig.
-import type { ToolDefinition } from "@twigg/sdk";
+import type { DefaultPolicies, ToolDefinition } from "@twigg/sdk";
 import YAML from "yaml";
+import { withoutDefaults } from "./normalise.js";
 import type { ModelNames, RemoteScope } from "./remote.js";
 import { SCHEMA_URL } from "./schema.js";
 import type { ConfigFile, Scope, ScopeKey } from "./types.js";
@@ -30,6 +31,7 @@ export function remoteToScope(
   scope: ScopeKey,
   remote: RemoteScope,
   models: ModelNames,
+  defaults: DefaultPolicies,
 ): { scope: Scope; files: [string, string][] } {
   const out: Scope = {};
   const files: [string, string][] = [];
@@ -46,8 +48,13 @@ export function remoteToScope(
       definitions: remote.tools.definitions.map(tidyTool),
     };
   if (remote.budgets.length > 0)
-    out.budgets = Object.fromEntries(remote.budgets.map((b) => [models.key(b.modelId), b.budget]));
-  if (remote.retention) out.retention = remote.retention.rules;
+    out.budgets = Object.fromEntries(
+      remote.budgets.map((b) => [
+        models.key(b.modelId),
+        withoutDefaults(b.budget, defaults.budget),
+      ]),
+    );
+  if (remote.retention) out.retention = withoutDefaults(remote.retention.rules, defaults.retention);
   return { scope: out, files };
 }
 

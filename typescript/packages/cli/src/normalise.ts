@@ -59,6 +59,24 @@ export function canonical(value: unknown): string {
 }
 
 /** Deep merge of plain objects; arrays and scalars in `over` replace those in `base`. */
+/**
+ * A document without the top-level fields that equal the platform default, so a pulled file
+ * keeps following the platform when a default improves. `version` always stays. Fields are
+ * dropped whole, never pruned inside: several are tagged unions that need every member.
+ */
+export function withoutDefaults<T extends object>(document: T, defaults: object): T {
+  const base = defaults as Record<string, unknown>;
+  // `version` first, as people write it; the API returns keys alphabetically.
+  const { version, ...rest } = document as Record<string, unknown>;
+  const ordered = version === undefined ? rest : { version, ...rest };
+  return Object.fromEntries(
+    Object.entries(ordered).filter(
+      ([key, value]) =>
+        key === "version" || !(key in base) || canonical(value) !== canonical(base[key]),
+    ),
+  ) as T;
+}
+
 export function merge(base: unknown, over: unknown): unknown {
   if (!isObject(base) || !isObject(over)) return over === undefined ? base : over;
   const out: Record<string, unknown> = { ...base };

@@ -20,6 +20,8 @@ export function renderPlan(plan: Plan): string {
       scope = label;
     }
     lines.push(`  ${symbol(change)} ${change.surface.padEnd(13)} ${change.detail}`);
+    if (change.matches !== undefined)
+      lines.push(`                  ${restoreHint(change, change.matches)}`);
   }
   const { publish, withdraw, unchanged, unmanaged, pruned } = plan.counts;
   if (lines.length === 0) lines.push("Nothing to manage in this scope.");
@@ -30,6 +32,12 @@ export function renderPlan(plan: Plan): string {
     }.`,
   );
   return lines.join("\n");
+}
+
+function restoreHint(change: Change, version: number): string {
+  const scope = change.scope === null ? "" : ` --scope ${change.scope}`;
+  const model = change.key && change.key !== "default" ? ` --model ${change.key}` : "";
+  return `same as v${version}: \`twigg config rollback${scope} --surface ${change.surface}${model} --to ${version}\` restores it without a new version`;
 }
 
 function symbol(change: Change): string {

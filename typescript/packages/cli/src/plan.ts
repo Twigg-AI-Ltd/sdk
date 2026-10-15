@@ -41,6 +41,8 @@ export interface Change {
   operation?: Operation;
   /** A withdrawal from pruning: the scope is not in the file at all. */
   pruned?: true;
+  /** For a publish: an earlier version with the same content, which a rollback could restore. */
+  matches?: number;
 }
 
 export interface Plan {
@@ -106,12 +108,69 @@ export async function plan(
         ...(options.prune ? pruneScope(ctx, scope, now) : describeUnmanaged(ctx, scope, now)),
       );
   }
+  await Promise.all(
+    changes
+      .filter((c) => c.action === "publish" && c.current !== "")
+      .map(async (change) => {
+        const version = await earlierMatch(ctx, change);
+        if (version !== undefined) change.matches = version;
+      }),
+  );
   const counts = { publish: 0, withdraw: 0, unchanged: 0, unmanaged: 0, pruned: 0 };
   for (const change of changes) {
     counts[change.action]++;
     if (change.pruned) counts.pruned++;
   }
   return { changes, counts };
+}
+
+/** How many earlier versions a plan reads to spot that a change matches one of them. */
+const RECENT_VERSIONS = 5;
+
+/**
+ * The newest earlier version whose content is what this change would publish, so the plan can
+ * suggest restoring it instead. Only a hint: applying still publishes a new version.
+ */
+async function earlierMatch(ctx: Context, change: Change): Promise<number | undefined> {
+  const op = change.operation;
+  const ns = scopeQuery(change.scope);
+  const config = ctx.twigg.config;
+  const recent = <V extends { is_active: boolean; version: number }>(versions: V[]) =>
+    versions
+      .filter((v) => !v.is_active)
+      .sort((a, b) => b.version - a.version)
+      .slice(0, RECENT_VERSIONS);
+  switch (op?.kind) {
+    case "instructions":
+      for (const v of recent(await config.instructions.versions(ns))) {
+        if (change.scope !== null && (v.mode ?? "append") !== op.mode) continue;
+        const { body } = await config.instructions.get(v.id);
+        if (normaliseBody(body) === normaliseBody(op.body)) return v.version;
+      }
+      return undefined;
+    case "tools":
+      for (const v of recent(await config.tools.versions(ns))) {
+        if (change.scope !== null && (v.mode ?? "append") !== op.mode) continue;
+        const { definitions } = await config.tools.get(v.id);
+        if (normaliseTools(definitions) === normaliseTools(op.definitions)) return v.version;
+      }
+      return undefined;
+    case "budget": {
+      const query = op.modelId ? { ...ns, model: op.modelId } : ns;
+      const wanted = normaliseDocument(op.budget, ctx.defaults.budget);
+      return recent(
+        (await config.budgets.versions(query)).filter((v) => (v.model_id ?? null) === op.modelId),
+      ).find((v) => normaliseDocument(v.budget, ctx.defaults.budget) === wanted)?.version;
+    }
+    case "retention": {
+      const wanted = normaliseDocument(op.rules, ctx.defaults.retention);
+      return recent(await config.retention.versions(ns)).find(
+        (v) => normaliseDocument(v.rules, ctx.defaults.retention) === wanted,
+      )?.version;
+    }
+    default:
+      return undefined;
+  }
 }
 
 function diffScope(

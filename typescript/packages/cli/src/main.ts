@@ -220,7 +220,7 @@ async function pullCommand(flags: Flags, io: Io): Promise<number> {
   for (const scope of scopes.sort(scopeOrder)) {
     const now = remote.get(scope);
     if (!now || !hasOverrides(now)) continue;
-    const pulled = remoteToScope(scope, now, ctx.models);
+    const pulled = remoteToScope(scope, now, ctx.models, ctx.defaults);
     files.push(...pulled.files);
     if (scope === null) config.global = pulled.scope;
     else {

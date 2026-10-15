@@ -278,6 +278,25 @@ describe("the race guard", () => {
 });
 
 describe("rollback and history", () => {
+  it("points out when a change matches an earlier version", async () => {
+    const api = fakeApi();
+    api.add("instructions", "acme", { mode: "append", body: "Old rules." });
+    api.add("instructions", "acme", { mode: "append", body: "New rules." });
+    const dir = await project({
+      "twigg.config.yaml": "version: 1\nnamespaces:\n  acme:\n    instructions: Old rules.\n",
+    });
+    const result = await cli(api, dir, ["config", "plan"]);
+    expect(result.stdout).toContain(
+      "same as v1: `twigg config rollback --scope acme --surface instructions --to 1` restores it",
+    );
+    const json = JSON.parse((await cli(api, dir, ["config", "plan", "--json"])).stdout);
+    expect(json.changes[0]).toMatchObject({
+      surface: "instructions",
+      action: "publish",
+      matches: 1,
+    });
+  });
+
   it("restores the previous version, or the one named", async () => {
     const api = fakeApi();
     api.add("tools", "acme", { mode: "append", definitions: [] });
