@@ -47,12 +47,14 @@ describe("plan and apply", () => {
     expect(result.stdout).toContain("\nglobal\n  + instructions");
   });
 
-  it("plans everything as new against an empty organisation, exiting 2", async () => {
+  it("plans everything as new against an empty organisation", async () => {
     const api = fakeApi();
     const dir = await project(files);
     const result = await cli(api, dir, ["config", "plan"]);
     expect(result.stderr).toBe("");
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(0);
+    // Exit 2 for changes only when asked, so a CI step can fail on drift.
+    expect((await cli(api, dir, ["config", "plan", "--detailed-exitcode"])).code).toBe(2);
     expect(result.stdout).toContain("(organisation)\n  + instructions");
     expect(result.stdout).toContain("+ tools         read_file, search_docs (append)");
     expect(result.stdout).toContain("+ budgets       claude-opus-5: new");
@@ -64,7 +66,7 @@ describe("plan and apply", () => {
     const api = fakeApi();
     const dir = await project(files);
     const applied = await cli(api, dir, ["config", "apply", "--yes", "--report", "report.json"]);
-    expect(applied.code).toBe(2);
+    expect(applied.code).toBe(0);
     expect(api.writes()).toEqual([
       "POST /api/v1/config/instructions",
       "POST /api/v1/config/instructions acme",
@@ -164,7 +166,7 @@ namespaces:
       "twigg.config.yaml":
         "version: 1\nnamespaces:\n  acme:\n    instructions: { mode: replace, body: Hi }\n",
     });
-    const result = await cli(api, dir, ["config", "plan"]);
+    const result = await cli(api, dir, ["config", "plan", "--detailed-exitcode"]);
     expect(result.code).toBe(2);
     expect(result.stdout).toContain("append -> replace");
   });
@@ -179,7 +181,7 @@ describe("withdrawals and the subtree", () => {
       "twigg.config.yaml": "version: 1\nnamespaces:\n  acme:\n    tools: null\n    budgets: {}\n",
     });
     const result = await cli(api, dir, ["config", "apply", "--yes"]);
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(0);
     expect(result.stdout).toContain("- budgets       gpt-5-6-luna: withdraw v1");
     expect(api.writes()).toEqual([
       "DELETE /api/v1/config/tools/active acme",
@@ -205,6 +207,24 @@ describe("withdrawals and the subtree", () => {
     expect(result.stdout).toContain("1 unmanaged");
   });
 
+  it("prunes the whole organisation only with --prune-all", async () => {
+    const api = fakeApi();
+    api.add("instructions", "other", { mode: "append", body: "Other." });
+    const dir = await project({
+      "twigg.config.yaml": "version: 1\nnamespaces:\n  acme:\n    instructions: Acme.\n",
+    });
+    const bare = await cli(api, dir, ["config", "apply", "--prune", "--yes"]);
+    expect(bare.code).toBe(1);
+    expect(bare.stderr).toContain("--prune without --scope");
+    const both = await cli(api, dir, ["config", "plan", "--prune-all", "--scope", "acme"]);
+    expect(both.code).toBe(1);
+    expect(api.writes()).toEqual([]);
+
+    const all = await cli(api, dir, ["config", "plan", "--prune-all"]);
+    expect(all.code).toBe(0);
+    expect(all.stdout).toContain("other   (not in the file: pruning withdraws all of it)");
+  });
+
   it("withdraws unmanaged overrides with --prune", async () => {
     const api = fakeApi();
     api.add("instructions", "acme/support", { mode: "replace", body: "Support." });
@@ -213,7 +233,11 @@ describe("withdrawals and the subtree", () => {
       "twigg.config.yaml": "version: 1\nnamespaces:\n  acme:\n    instructions: Acme.\n",
     });
     const result = await cli(api, dir, ["config", "apply", "--scope", "acme", "--prune", "--yes"]);
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "acme/support   (not in the file: pruning withdraws all of it)",
+    );
+    expect(result.stdout).toContain("2 to withdraw (2 pruned)");
     expect(api.writes()).toEqual([
       "POST /api/v1/config/instructions acme",
       "DELETE /api/v1/config/instructions/active acme/support",
@@ -268,7 +292,7 @@ describe("rollback and history", () => {
       "--surface",
       "tools",
     ]);
-    expect(back.code).toBe(2);
+    expect(back.code).toBe(0);
     expect(back.stdout).toBe("Restored tools in acme to v2 (was v3).");
     const to = await cli(api, dir, [
       "config",

@@ -42,9 +42,12 @@ Options:
   -c, --config <path>   Configuration file (default: twigg.config.{ts,yaml,yml,json})
   --scope <namespace>   Only this namespace and everything beneath it (default: everything;
                         for rollback, resolve and history: the organisation-wide scope)
-  --prune               Withdraw overrides in scopes the file does not mention
+  --prune               With --scope: withdraw overrides beneath it that the file does not mention
+  --prune-all           Withdraw overrides in every scope the file does not mention, across the
+                        whole organisation
   --yes                 Apply without asking
   --json                Machine-readable output
+  --detailed-exitcode   plan only: exit 2 when there are changes, 0 when there are none
   --report <path>       Write what apply did as JSON
   --format <yaml|ts|json>  Output format for pull and convert (default yaml)
   --out <path>          Output file for pull and convert
@@ -56,12 +59,14 @@ Options:
   -h, --help            Show this help
   -v, --version         Show the version
 
-Exit codes: 0 no changes, 2 changes planned or applied, 1 error.`;
+Exit codes: 0 success, 1 error. With plan --detailed-exitcode: 0 no changes, 2 changes, 1 error.`;
 
 const OPTIONS = {
   config: { type: "string", short: "c" },
   scope: { type: "string" },
   prune: { type: "boolean" },
+  "prune-all": { type: "boolean" },
+  "detailed-exitcode": { type: "boolean" },
   yes: { type: "boolean", short: "y" },
   json: { type: "boolean" },
   report: { type: "string" },
@@ -159,7 +164,8 @@ async function planCommand(flags: Flags, io: Io): Promise<number> {
   const ctx = await context(await client(flags, io));
   const planned = await plan(ctx, config.desired, options(flags));
   io.stdout(flags.json ? JSON.stringify(planned, null, 2) : renderPlan(planned));
-  return planned.counts.publish + planned.counts.withdraw > 0 ? EXIT.changes : EXIT.ok;
+  const changed = planned.counts.publish + planned.counts.withdraw > 0;
+  return flags["detailed-exitcode"] && changed ? EXIT.changes : EXIT.ok;
 }
 
 async function applyCommand(flags: Flags, io: Io): Promise<number> {
@@ -200,7 +206,7 @@ async function applyCommand(flags: Flags, io: Io): Promise<number> {
   await writeReport();
   if (flags.json) io.stdout(JSON.stringify({ applied }, null, 2));
   else io.stdout(`Applied ${applied.length} change${applied.length === 1 ? "" : "s"}.`);
-  return EXIT.changes;
+  return EXIT.ok;
 }
 
 async function pullCommand(flags: Flags, io: Io): Promise<number> {
@@ -268,7 +274,7 @@ async function rollbackCommand(flags: Flags, io: Io): Promise<number> {
   io.stdout(
     `Restored ${surface} in ${scopeLabel(scope)} to v${target.version}${active ? ` (was v${active.version})` : ""}.`,
   );
-  return EXIT.changes;
+  return EXIT.ok;
 }
 
 async function resolveCommand(flags: Flags, io: Io): Promise<number> {
@@ -366,7 +372,20 @@ async function listVersions(
 }
 
 function options(flags: Flags) {
-  return { ...(flags.scope ? { scope: flags.scope } : {}), prune: !!flags.prune };
+  // Pruning the whole organisation withdraws every override the file does not mention, so it
+  // takes its own flag rather than following from a forgotten --scope.
+  if (flags["prune-all"] && flags.scope)
+    throw new ConfigError(
+      "--prune-all prunes the whole organisation; to prune beneath one namespace, use --prune with --scope",
+    );
+  if (flags.prune && !flags.scope)
+    throw new ConfigError(
+      "--prune without --scope would withdraw configuration from every scope in the organisation that this file does not mention. Pass --scope <namespace> to prune beneath one namespace, or --prune-all if you mean the whole organisation.",
+    );
+  return {
+    ...(flags.scope ? { scope: flags.scope } : {}),
+    prune: !!flags.prune || !!flags["prune-all"],
+  };
 }
 
 function outputFormat(flags: Flags): Format {

@@ -39,11 +39,20 @@ export interface Change {
   current: string;
   /** What applying does. Absent for unchanged and unmanaged entries. */
   operation?: Operation;
+  /** A withdrawal from pruning: the scope is not in the file at all. */
+  pruned?: true;
 }
 
 export interface Plan {
   changes: Change[];
-  counts: { publish: number; withdraw: number; unchanged: number; unmanaged: number };
+  counts: {
+    publish: number;
+    withdraw: number;
+    unchanged: number;
+    unmanaged: number;
+    /** How many of the withdrawals come from pruning. */
+    pruned: number;
+  };
 }
 
 export interface PlanOptions {
@@ -97,8 +106,11 @@ export async function plan(
         ...(options.prune ? pruneScope(ctx, scope, now) : describeUnmanaged(ctx, scope, now)),
       );
   }
-  const counts = { publish: 0, withdraw: 0, unchanged: 0, unmanaged: 0 };
-  for (const change of changes) counts[change.action]++;
+  const counts = { publish: 0, withdraw: 0, unchanged: 0, unmanaged: 0, pruned: 0 };
+  for (const change of changes) {
+    counts[change.action]++;
+    if (change.pruned) counts.pruned++;
+  }
   return { changes, counts };
 }
 
@@ -321,8 +333,9 @@ function pruneScope(ctx: Context, scope: ScopeKey, now: RemoteScope): Change[] {
         scope,
         surface,
         action: "withdraw",
-        detail: `withdraw v${current.version} (not in the file, --prune)`,
+        detail: `withdraw v${current.version} (not in the file)`,
         current: current.id,
+        pruned: true,
         operation: { kind: "withdraw" },
       });
   }
@@ -333,8 +346,9 @@ function pruneScope(ctx: Context, scope: ScopeKey, now: RemoteScope): Change[] {
       surface: "budgets",
       key,
       action: "withdraw",
-      detail: `${key}: withdraw v${budget.version} (not in the file, --prune)`,
+      detail: `${key}: withdraw v${budget.version} (not in the file)`,
       current: budget.id,
+      pruned: true,
       operation: { kind: "withdraw", modelId: budget.modelId },
     });
   }

@@ -75,7 +75,7 @@ Rules:
 
 | Command | What it does |
 |---|---|
-| `twigg config plan` | Show what applying would change. Exit 2 when there are changes. |
+| `twigg config plan` | Show what applying would change. |
 | `twigg config apply` | Show the plan, ask, then publish and withdraw. `--yes` skips the question. |
 | `twigg config pull` | Write the current configuration as a file, instructions as Markdown. |
 | `twigg config rollback --surface tools` | Restore the previous version, or `--to <n>`. |
@@ -89,6 +89,11 @@ rollback, resolve and history it selects the scope (the default is the organisat
 Overrides beneath the scope that the file does not declare are listed as unmanaged, so you can
 see when, say, `acme/support` replaces what you are changing in `acme`. `--prune` withdraws them.
 
+`--prune` needs `--scope`: it withdraws the overrides beneath that namespace which the file does
+not mention. Pruning the whole organisation, which withdraws every override the file does not
+mention, takes its own flag, `--prune-all`, so it never follows from a forgotten `--scope`. Pruned
+scopes are marked in the plan, and the summary counts them.
+
 Plans compare normalised values: line endings and trailing whitespace in instructions, tool
 order and key order, and fields equal to the platform defaults do not count as changes.
 
@@ -101,11 +106,14 @@ There is no state file: Twigg's version history is the state.
 
 ### Exit codes
 
-| Code | Meaning |
+`0` on success and `1` on an error, for every command. `plan --detailed-exitcode` adds a third,
+as Terraform's does, for checks that should fail on unapplied changes:
+
+| Code | `plan --detailed-exitcode` |
 |---|---|
 | 0 | No changes |
-| 2 | Changes planned (`plan`) or made (`apply`, `rollback`) |
 | 1 | Error |
+| 2 | Changes to apply |
 
 ## Credentials
 
@@ -123,16 +131,18 @@ base_url = https://api.staging.example
 
 ## CI
 
-Plan on pull requests, posting the plan as a comment; apply on merge.
+Plan on pull requests, posting the plan as a comment; apply on merge. Install the CLI as a dev
+dependency so the lockfile pins the version CI runs.
 
 ```yaml
 name: Twigg configuration
 on:
   pull_request:
-    paths: ["twigg.config.*", "prompts/**", "tools/**"]
   push:
     branches: [main]
-    paths: ["twigg.config.*", "prompts/**", "tools/**"]
+
+# One run at a time, so two merges cannot apply over each other.
+concurrency: twigg-config
 
 jobs:
   twigg:
@@ -147,14 +157,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci
       - name: Plan
         if: github.event_name == 'pull_request'
         run: |
-          set +e
-          npx --yes @twigg/cli config plan > plan.txt
-          code=$?
+          npx twigg config plan > plan.txt
           cat plan.txt
-          [ "$code" = 1 ] && exit 1
           {
             echo '### Twigg configuration plan'
             echo '```'
@@ -166,8 +174,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - name: Apply
         if: github.event_name == 'push'
-        run: |
-          npx --yes @twigg/cli config apply --yes --report apply.json || [ $? = 2 ]
+        run: npx twigg config apply --yes --report apply.json
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
         with:
@@ -175,5 +182,8 @@ jobs:
           path: apply.json
 ```
 
-Exit code 2 means "there were changes", so the steps treat it as success and only 1 fails the
-job.
+A pull request from a fork never sees the secret, and anyone who can push a branch to the
+repository can change what `plan` runs: a TypeScript config is code. Keep the key for a
+configuration-only Twigg account if that matters, and protect `main` so only reviewed changes
+apply. To fail a check when `main` has drifted from what is live, run
+`npx twigg config plan --detailed-exitcode` on a schedule.

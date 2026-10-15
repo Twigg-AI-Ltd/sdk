@@ -10,19 +10,22 @@ export function renderPlan(plan: Plan): string {
   for (const change of plan.changes) {
     const label = scopeLabel(change.scope);
     if (label !== scope) {
-      const unmanaged = plan.changes
-        .filter((c) => scopeLabel(c.scope) === label)
-        .every((c) => c.action === "unmanaged");
-      lines.push(unmanaged ? `${label}   (unmanaged)` : label);
+      const inScope = plan.changes.filter((c) => scopeLabel(c.scope) === label);
+      const note = inScope.every((c) => c.action === "unmanaged")
+        ? "   (unmanaged)"
+        : inScope.every((c) => c.pruned)
+          ? "   (not in the file: pruning withdraws all of it)"
+          : "";
+      lines.push(label + note);
       scope = label;
     }
     lines.push(`  ${symbol(change)} ${change.surface.padEnd(13)} ${change.detail}`);
   }
-  const { publish, withdraw, unchanged, unmanaged } = plan.counts;
+  const { publish, withdraw, unchanged, unmanaged, pruned } = plan.counts;
   if (lines.length === 0) lines.push("Nothing to manage in this scope.");
   lines.push(
     "",
-    `Plan: ${publish} to publish, ${withdraw} to withdraw, ${unchanged} unchanged${
+    `Plan: ${publish} to publish, ${withdraw} to withdraw${pruned ? ` (${pruned} pruned)` : ""}, ${unchanged} unchanged${
       unmanaged ? `, ${unmanaged} unmanaged (not in the file; --prune withdraws them)` : ""
     }.`,
   );

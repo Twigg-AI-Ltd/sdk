@@ -541,9 +541,10 @@ twigg config history --scope acme [--surface instructions]
   endpoints. No new version is created, matching the API's restore semantics.
 - **history** lists versions with the active one marked.
 
-Exit codes for CI: `0` no changes, `2` changes planned (plan) or applied
-(apply), `1` error. `plan --detailed-exitcode` style, so a PR check can fail
-on unapplied drift.
+Exit codes for CI: `0` success and `1` error for every command, so a successful apply never
+fails a CI step. `plan --detailed-exitcode` exits `2` when there are changes, as Terraform's does,
+so a scheduled check can fail on unapplied drift. Org-wide pruning takes `--prune-all`; `--prune`
+needs `--scope`.
 
 ### Normalisation rules
 

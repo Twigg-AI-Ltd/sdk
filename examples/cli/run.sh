@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Walk through the CLI against examples/cli: bash examples/cli/run.sh, with TWIGG_API_KEY set.
-# Exit code 2 from plan/apply means "changes", so it is not treated as a failure here.
-set -uo pipefail
+set -euo pipefail
 cd "$(dirname "$0")"
 twigg() { npx --yes @twigg/cli "$@"; }
 
