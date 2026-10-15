@@ -39,4 +39,9 @@ pnpm check   # typecheck, lint, test
 pnpm build
 ```
 
-See [PLAN.md](PLAN.md) for the design and milestones.
+## More
+
+- [examples/](examples): one idea per script, TypeScript and Python side by side.
+- [AGENTS.md](AGENTS.md): how to work on this repository (checks, generated code, rules).
+- [RELEASING.md](RELEASING.md): how a release is cut.
+- [PLAN.md](PLAN.md): the design and the decisions behind it.

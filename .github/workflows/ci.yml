@@ -29,6 +29,7 @@ jobs:
           cache-dependency-path: typescript/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: for f in ../examples/typescript/*.mjs; do node --check "$f"; done
       - run: pnpm build
 
   python:
@@ -49,6 +50,8 @@ jobs:
       - run: uv run pyright
       - run: uv run pytest
       - run: uv run python scripts/unasync.py --check
+      # The examples use the public API, so a rename that breaks them fails here.
+      - run: uv run pyright ../examples/python
 
   python-lowest:
     # The oldest dependency versions pyproject.toml allows, so the declared floors stay true.

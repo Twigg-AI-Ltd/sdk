@@ -1,0 +1,97 @@
+name: Release
+
+# A `ts-v<version>` tag publishes @twigg/sdk and @twigg/cli to npm; a `py-v<version>` tag
+# publishes twigg to PyPI. Both use trusted publishing (OIDC), so no token is stored anywhere.
+# The tag must match every version the package declares, and versions already published are
+# skipped, so a re-run after a partial failure is safe.
+
+on:
+  push:
+    tags: ["ts-v*", "py-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  npm:
+    if: startsWith(github.ref_name, 'ts-v')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: typescript/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: typescript/pnpm-lock.yaml
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@latest
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+      - name: Check the tag matches every version
+        run: |
+          tag="${GITHUB_REF_NAME#ts-v}"
+          fail=0
+          check() { if [ "$2" != "$tag" ]; then echo "::error::$1 is $2 but the tag is $GITHUB_REF_NAME"; fail=1; fi; }
+          check packages/sdk/package.json "$(node -p "require('./packages/sdk/package.json').version")"
+          check packages/cli/package.json "$(node -p "require('./packages/cli/package.json').version")"
+          check packages/sdk/src/version.ts "$(sed -n 's/^export const VERSION = "\(.*\)";/\1/p' packages/sdk/src/version.ts)"
+          check packages/cli/src/main.ts "$(sed -n 's/^export const VERSION = "\(.*\)";/\1/p' packages/cli/src/main.ts)"
+          exit $fail
+
+      # pnpm pack builds each package (prepack) and turns the CLI's `workspace:*` dependency into
+      # the real version; npm then publishes the tarball through trusted publishing. The SDK goes
+      # first because the CLI depends on it.
+      - name: Publish
+        run: |
+          mkdir -p ../release
+          for dir in packages/sdk packages/cli; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already on npm, skipping"
+              continue
+            fi
+            tarball=$(cd "$dir" && pnpm pack --pack-destination ../../../release | tail -n 1)
+            npm publish "$tarball" --access public --provenance
+          done
+
+  pypi:
+    if: startsWith(github.ref_name, 'py-v')
+    runs-on: ubuntu-latest
+    # The environment named in the PyPI trusted publisher.
+    environment: pypi
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run pyright
+      - run: uv run pytest
+      - run: uv run python scripts/unasync.py --check
+
+      - name: Check the tag matches every version
+        run: |
+          tag="${GITHUB_REF_NAME#py-v}"
+          fail=0
+          check() { if [ "$2" != "$tag" ]; then echo "::error::$1 is $2 but the tag is $GITHUB_REF_NAME"; fail=1; fi; }
+          check pyproject.toml "$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)"
+          check src/twigg/_version.py "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/twigg/_version.py)"
+          exit $fail
+
+      - run: uv build
+      # --check-url skips files PyPI already has, so a re-run publishes only what is missing.
+      - run: uv publish --trusted-publishing always --check-url https://pypi.org/simple/

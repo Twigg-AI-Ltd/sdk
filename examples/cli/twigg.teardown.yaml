@@ -1,0 +1,8 @@
+# Declares every surface the main config manages as null: "managed, with no override here",
+# so applying it withdraws them and leaves examples/cli as it started.
+version: 1
+namespaces:
+  examples/cli:
+    instructions: null
+    tools: null
+    budgets: null

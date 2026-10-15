@@ -1,0 +1,8 @@
+{
+  "name": "twigg-sdk-examples",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@twigg/sdk": "^0.1.0"
+  }
+}

@@ -36,6 +36,32 @@ const chat = twigg.chat(summary); // or twigg.chat(id); the record stays on chat
 await chat.send("Where were we?");
 ```
 
+## Quick reference
+
+```ts
+import { Twigg, tool } from "@twigg/sdk";
+
+const twigg = new Twigg({ model: "gpt-6-luna" });                  // key from TWIGG_API_KEY
+const models = await twigg.models.list();                          // names to pass as `model`
+
+const chat = await twigg.chats.open({ namespace: "acme/user-99" }); // new chat
+const again = twigg.chat(chatId);                                   // existing chat, no request
+
+const reply = await chat.send("Hi");             // .text .cost .usage .toolCalls .stopReason
+const streamed = await chat.stream("Hi").on("text", (d) => process.stdout.write(d)).final();
+const outcome = await chat.runTools("Hi", { tools: [myTool] }).final(); // the tool loop
+
+for await (const c of twigg.chats.list({ namespace: "acme" })) {}  // every chat, newest first
+for await (const p of chat.history({ after_ordinal: -1 })) {}      // transcript, oldest first
+
+const acme = twigg.namespace("acme");                               // pins the namespace
+await acme.config.instructions.publish({ mode: "append", body: "Answer briefly." });
+const run = await twigg.runs.waitForSettlement(reply.runId);        // the final cost
+```
+
+Every failure is a `TwiggError`; `@twigg/sdk/testing` has `MockTwigg` for tests without a network.
+Runnable versions of all of this are in [examples/](https://github.com/Twigg-AI-Ltd/sdk/tree/main/examples).
+
 ## Streaming
 
 ```ts

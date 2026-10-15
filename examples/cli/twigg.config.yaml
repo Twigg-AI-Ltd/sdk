@@ -1,0 +1,19 @@
+# Config as code for the examples/cli namespace: system instructions from a Markdown file,
+# one tool, and a context budget. `run.sh` validates, plans, applies, resolves and tears down.
+# yaml-language-server: $schema=https://twigg.ai/schemas/config.v1.json
+version: 1
+namespaces:
+  examples/cli:
+    instructions:
+      mode: append
+      body: { $file: prompts/support.md }
+    tools:
+      definitions:
+        - name: lookup_order
+          description: Look up an order by id
+          input_schema:
+            type: object
+            properties: { id: { type: string } }
+            required: [id]
+    budgets:
+      default: { version: 3, headroom: 0.2, history_mode: summarize }

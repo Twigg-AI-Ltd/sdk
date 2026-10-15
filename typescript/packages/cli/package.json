@@ -27,6 +27,7 @@
   },
   "files": [
     "dist",
+    "src",
     "schema",
     "README.md"
   ],
