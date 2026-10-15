@@ -1,0 +1,35 @@
+{
+  "run_id": "01a0d4e4-6220-7861-8f04-b6f76f4d5bff",
+  "chat_id": "01a0d4e4-619e-7a00-8ba7-f0213f541166",
+  "text": "",
+  "reasoning": "",
+  "refusal": null,
+  "blocks": [
+    {
+      "type": "tool_call",
+      "id": "call_24q560NSA4Nt1eeDAW45bMw4",
+      "name": "write_file",
+      "input": {
+        "content": "hi there",
+        "path": "notes/a.txt"
+      },
+      "raw_input": "{\"content\":\"hi there\",\"path\":\"notes/a.txt\"}"
+    }
+  ],
+  "pending_tool_call_ids": [
+    "call_24q560NSA4Nt1eeDAW45bMw4"
+  ],
+  "closed_tool_call_ids": [],
+  "stop_reason": "tool_use",
+  "usage": {
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "input_tokens": 63,
+    "output_tokens": 25,
+    "reasoning_tokens": 0
+  },
+  "cost": "0.00001974",
+  "cost_currency": "USD",
+  "model_served": "gpt-6-luna",
+  "warnings": []
+}

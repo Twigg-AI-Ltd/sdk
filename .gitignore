@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+*.tgz
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Local agent context
+CLAUDE.local.md
+.claude/
+
+# Editor swap files
+*.swp
+*.swo

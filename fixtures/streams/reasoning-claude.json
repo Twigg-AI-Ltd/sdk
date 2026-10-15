@@ -1,0 +1,39 @@
+{
+  "run_id": "01a0d4e4-7654-7421-8850-e833c8a8a75d",
+  "chat_id": "01a0d4e4-75db-7932-9f88-7d8b584bbe95",
+  "text": "42",
+  "reasoning": "",
+  "refusal": null,
+  "blocks": [
+    {
+      "type": "text",
+      "text": "42"
+    },
+    {
+      "type": "tool_call",
+      "id": "toolu_01P7n74ykc7MxDkiphRTcQon",
+      "name": "write_file",
+      "input": {
+        "path": "c.txt",
+        "content": "42"
+      },
+      "raw_input": "{\"path\": \"c.txt\", \"content\": \"42\"}"
+    }
+  ],
+  "pending_tool_call_ids": [
+    "toolu_01P7n74ykc7MxDkiphRTcQon"
+  ],
+  "closed_tool_call_ids": [],
+  "stop_reason": "tool_use",
+  "usage": {
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "input_tokens": 463,
+    "output_tokens": 73,
+    "reasoning_tokens": 0
+  },
+  "cost": "0.00173880",
+  "cost_currency": "USD",
+  "model_served": "claude-sonnet-5",
+  "warnings": []
+}

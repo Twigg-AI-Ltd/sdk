@@ -1,0 +1,57 @@
+[project]
+name = "twigg"
+version = "0.1.0"
+description = "Python SDK for the Twigg API"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Twigg AI Ltd" }]
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.27", "pydantic>=2.10", "typing_extensions>=4.12.2"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://twigg.ai/docs"
+Repository = "https://github.com/Twigg-AI-Ltd/sdk"
+
+[build-system]
+requires = ["uv_build>=0.12.3,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+  "datamodel-code-generator[http]>=0.30",
+  "pyright>=1.1.400",
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["src/twigg/_generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# Generated from async code, where `yield from` and enumerate() over `async for` do not exist.
+"src/twigg/_sync/*" = ["UP028", "SIM113"]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["src/twigg/_generated"]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+reportPrivateUsage = false
+reportMissingTypeStubs = false

@@ -1,0 +1,39 @@
+{
+  "run_id": "01a0d4e4-6e79-72a1-8d6a-efafc675a05f",
+  "chat_id": "01a0d4e4-6e01-7891-ab97-cc32ddde17eb",
+  "text": "I will write the letter 'x' to the file named 'b.txt'.\n\n",
+  "reasoning": "",
+  "refusal": null,
+  "blocks": [
+    {
+      "type": "text",
+      "text": "I will write the letter 'x' to the file named 'b.txt'.\n\n"
+    },
+    {
+      "type": "tool_call",
+      "id": "call_2805269",
+      "name": "write_file",
+      "input": {
+        "content": "x",
+        "path": "b.txt"
+      },
+      "raw_input": "{\"content\": \"x\",\"path\": \"b.txt\"}"
+    }
+  ],
+  "pending_tool_call_ids": [
+    "call_2805269"
+  ],
+  "closed_tool_call_ids": [],
+  "stop_reason": "tool_use",
+  "usage": {
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "input_tokens": 52,
+    "output_tokens": 186,
+    "reasoning_tokens": 144
+  },
+  "cost": "0.00030660",
+  "cost_currency": "USD",
+  "model_served": "gemini-3.1-flash-lite",
+  "warnings": []
+}

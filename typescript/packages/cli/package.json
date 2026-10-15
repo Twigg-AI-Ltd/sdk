@@ -1,0 +1,46 @@
+{
+  "name": "@twigg/cli",
+  "version": "0.1.0",
+  "description": "Twigg configuration as code: plan and apply instructions, tools, budgets and retention",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Twigg-AI-Ltd/sdk.git",
+    "directory": "typescript/packages/cli"
+  },
+  "homepage": "https://twigg.ai/docs",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "twigg": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema/config.v1.json": "./schema/config.v1.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "schema",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "@twigg/sdk": "workspace:*",
+    "ajv": "^8.20.0",
+    "jiti": "^2.7.0",
+    "yaml": "^2.9.1"
+  }
+}

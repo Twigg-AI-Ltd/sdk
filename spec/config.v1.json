@@ -1,0 +1,575 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://twigg.ai/schemas/config.v1.json",
+  "title": "Twigg configuration",
+  "description": "Instructions, tools, context budgets and retention for an organisation and its namespaces, applied with `twigg config apply`. A scope or surface left out is unmanaged and never changed; `null` withdraws its override so it inherits from the parent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "description": "Configuration file format version."
+    },
+    "global": {
+      "$ref": "#/$defs/Scope",
+      "description": "The organisation-wide scope every namespace inherits from."
+    },
+    "namespaces": {
+      "type": "object",
+      "description": "Namespace scopes, keyed by namespace. Children inherit from their parents: `acme/support` resolves on top of `acme`.",
+      "propertyNames": {
+        "$ref": "#/$defs/Namespace"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Scope"
+      }
+    }
+  },
+  "$defs": {
+    "BudgetFraction": {
+      "format": "float",
+      "type": "number"
+    },
+    "ConfigMode": {
+      "enum": [
+        "append",
+        "replace"
+      ],
+      "type": "string"
+    },
+    "ContextBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "eager_compaction": {
+          "$ref": "#/$defs/EagerCompaction"
+        },
+        "headroom": {
+          "$ref": "#/$defs/BudgetFraction"
+        },
+        "history_mode": {
+          "$ref": "#/$defs/HistoryMode"
+        },
+        "max_history_tokens": {
+          "format": "int32",
+          "minimum": 32000,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "version": {
+          "format": "int32",
+          "maximum": 3,
+          "minimum": 3,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "headroom"
+      ],
+      "type": "object"
+    },
+    "EagerCompaction": {
+      "discriminator": {
+        "mapping": {
+          "at_fill": "#/components/schemas/EagerCompactionAtFill",
+          "off": "#/components/schemas/EagerCompactionOff"
+        },
+        "propertyName": "mode"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/EagerCompactionOff"
+        },
+        {
+          "$ref": "#/$defs/EagerCompactionAtFill"
+        }
+      ]
+    },
+    "EagerCompactionAtFill": {
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/BudgetFraction"
+        },
+        "mode": {
+          "enum": [
+            "at_fill"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "EagerCompactionOff": {
+      "properties": {
+        "mode": {
+          "enum": [
+            "off"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    },
+    "FileReference": {
+      "type": "object",
+      "description": "Load this value from a file, relative to the configuration file. Markdown or text for instructions; JSON or YAML for structured values.",
+      "additionalProperties": false,
+      "required": [
+        "$file"
+      ],
+      "properties": {
+        "$file": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "HistoryMode": {
+      "enum": [
+        "summarize",
+        "drop_oldest"
+      ],
+      "type": "string"
+    },
+    "MediaRetentionRule": {
+      "additionalProperties": false,
+      "description": "One media rule.",
+      "properties": {
+        "mime": {
+          "$ref": "#/$defs/MimePattern"
+        },
+        "retain": {
+          "$ref": "#/$defs/RecencyThreshold",
+          "description": "How recent a part must be for media of this type to be replayed."
+        }
+      },
+      "required": [
+        "mime",
+        "retain"
+      ],
+      "type": "object"
+    },
+    "MediaRules": {
+      "additionalProperties": false,
+      "description": "The media section: which attachments are replayed.",
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/RecencyThreshold",
+          "description": "Applied when no rule matches."
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/MediaRetentionRule"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "MimePattern": {
+      "type": "string"
+    },
+    "Namespace": {
+      "maxLength": 255,
+      "minLength": 1,
+      "pattern": "^[a-z0-9_-]{1,64}(/[a-z0-9_-]{1,64})*$",
+      "type": "string"
+    },
+    "RecencyThreshold": {
+      "format": "float",
+      "type": "number"
+    },
+    "RetentionRules": {
+      "additionalProperties": false,
+      "description": "The stored document. Private fields: holding one is proof it parsed.",
+      "properties": {
+        "anchor_parts": {
+          "description": "How many parts at the head of the chat are pinned verbatim, never\ncompacted and never truncated. `0` disables it.\n\nCounted in **parts**, not tokens, because the value a customer wants to\nexpress is \"the task spec\", which is a part boundary they can see — not a\ntoken count they would have to estimate and re-tune whenever they edited\nthe spec.",
+          "format": "int32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRules"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/RecencyThreshold",
+          "description": "How recent a part must be for its reasoning to be replayed. Defaults to\nthe same window as media: a reasoning block's replay token is worthless\nto a model of another family anyway, and old reasoning is the least\nload-bearing, most expensive thing in a long agentic history."
+        },
+        "text": {
+          "$ref": "#/$defs/TextRules"
+        },
+        "tools": {
+          "$ref": "#/$defs/ToolRules"
+        },
+        "verbatim_within": {
+          "$ref": "#/$defs/RecencyThreshold",
+          "description": "How recent a payload must be to escape truncation entirely — tool results,\ntool arguments and prose alike.\n\nOne setting for the whole document, deliberately, and the direct\ndescendant of the old `truncate_within_frontier` flag. \"Don't cut the tool\noutput I just received\" is not a per-tool judgement, and giving each\nfamily its own would put three definitions of \"recent\" back in a document\nwhose entire point is that there is one.\n\nHoisted out of the tool section when prose truncation arrived: the\nalternative was a second identical field on `TextRules`, which is how a\nshared metric quietly becomes two that drift."
+        },
+        "version": {
+          "format": "int32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object"
+    },
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instructions": {
+          "description": "System instructions. A bare string or file reference publishes with mode `append`. `null` withdraws this scope's instructions.",
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "$ref": "#/$defs/ScopeInstructions"
+            }
+          ]
+        },
+        "tools": {
+          "description": "Saved tools. `null` withdraws this scope's tool bundle.",
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ScopeTools"
+            }
+          ]
+        },
+        "budgets": {
+          "description": "Context budgets. `null` withdraws every budget in this scope.",
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ScopeBudgets"
+            }
+          ]
+        },
+        "retention": {
+          "description": "Retention policy. `null` withdraws this scope's policy.",
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/RetentionRules"
+            },
+            {
+              "$ref": "#/$defs/FileReference"
+            }
+          ]
+        }
+      }
+    },
+    "ScopeBudgets": {
+      "type": "object",
+      "description": "Keyed by `default` (the budget for every model without its own) or a catalogue model name such as `claude-opus-5`. `null` withdraws that key's budget.",
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$ref": "#/$defs/ContextBudget"
+          },
+          {
+            "$ref": "#/$defs/FileReference"
+          }
+        ]
+      }
+    },
+    "ScopeInstructions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "body"
+      ],
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/ConfigMode",
+          "description": "How this scope combines with its parent. Defaults to `append`; ignored on the global scope."
+        },
+        "body": {
+          "$ref": "#/$defs/Text"
+        }
+      }
+    },
+    "ScopeTools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definitions"
+      ],
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/ConfigMode",
+          "description": "How this scope combines with its parent. Defaults to `append`."
+        },
+        "definitions": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ToolDefinition"
+              },
+              {
+                "$ref": "#/$defs/FileReference"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "Text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/FileReference"
+        }
+      ]
+    },
+    "TextRules": {
+      "additionalProperties": false,
+      "description": "Truncation policies for older user prompts and assistant messages. The current exchange and configured anchor remain protected.",
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/Truncation",
+          "description": "Applied to an assistant `message`'s text.\n\nSeparate from `prompt` for the same reason a tool's arguments and result\nare separate: they are different sizes with different value. A customer\npasting logs wants their own input cut; a customer whose model writes long\nanswers wants the replies cut."
+        },
+        "prompt": {
+          "$ref": "#/$defs/Truncation",
+          "description": "Applied to a `prompt` part's text."
+        }
+      },
+      "type": "object"
+    },
+    "TokenEstimate": {
+      "description": "A count of estimated tokens. Always non-negative; saturates rather than\noverflowing, because a budget calculation must never wrap into a small\nnumber and wave through a request that cannot fit.",
+      "format": "int32",
+      "type": "integer"
+    },
+    "ToolDefinition": {
+      "description": "A named tool with a description and JSON Schema parameters. Parameters must be a valid schema describing an object; external schema references are not supported.",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_schema": {
+          "type": "object"
+        },
+        "name": {
+          "$ref": "#/$defs/ToolName"
+        },
+        "strict": {
+          "description": "Ask the provider to guarantee the tool call validates against the schema.\n\n`None` means the customer did not say, which is distinct from `false`:\nthe providers' own defaults differ, and translating an unstated\npreference into an explicit `false` would silently opt a customer out of\na guarantee they never declined. Dropped when targeting Google, which has\nno equivalent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "input_schema"
+      ],
+      "type": "object"
+    },
+    "ToolName": {
+      "type": "string"
+    },
+    "ToolNamePattern": {
+      "type": "string"
+    },
+    "ToolRetentionRule": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ToolTreatment"
+        },
+        {
+          "properties": {
+            "tool": {
+              "$ref": "#/$defs/ToolNamePattern"
+            }
+          },
+          "required": [
+            "tool"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "One tool rule."
+    },
+    "ToolRules": {
+      "additionalProperties": false,
+      "description": "The tool section: how tool payloads are cut down.",
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/ToolTreatment",
+          "description": "Applied when no rule matches."
+        },
+        "errors": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Truncation",
+              "description": "Replaces the matched `result` treatment on a part flagged `is_error`.\n`None` means errors follow the ordinary rule.\n\nWorth its own knob because failures split the customer base cleanly: for\none, a stack trace is the most valuable thing in the history; for the\nnext, it is a retry loop's worth of noise."
+            }
+          ]
+        },
+        "mark_truncations": {
+          "description": "Whether a cut payload carries a visible marker of what was elided.\n\nDefaults **on**, and deliberately not a per-rule choice: a model that\ncannot tell output was truncated will confidently invent the missing\nmiddle, and that failure is not a per-tool judgement call.",
+          "type": "boolean"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/ToolRetentionRule"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ToolTreatment": {
+      "additionalProperties": false,
+      "description": "How one tool's two payloads are treated. Arguments and results are separate\nbecause they are separate parts with separate sizes — a `write_file` call's\narguments routinely dwarf its result, and a `search` call's result dwarfs its\narguments.",
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/Truncation",
+          "description": "Applied to the `tool_call` arguments."
+        },
+        "result": {
+          "$ref": "#/$defs/Truncation",
+          "description": "Applied to the `tool_result` payload."
+        }
+      },
+      "type": "object"
+    },
+    "Truncation": {
+      "description": "Keep content unchanged, always truncate to a token target, or truncate only when it exceeds a threshold. Choose the head, tail, or both ends to retain.",
+      "discriminator": {
+        "mapping": {
+          "always": "#/components/schemas/TruncationAlways",
+          "keep": "#/components/schemas/TruncationKeep",
+          "over": "#/components/schemas/TruncationOver"
+        },
+        "propertyName": "mode"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TruncationKeep"
+        },
+        {
+          "$ref": "#/$defs/TruncationAlways"
+        },
+        {
+          "$ref": "#/$defs/TruncationOver"
+        }
+      ]
+    },
+    "TruncationAlways": {
+      "description": "Always cut to `to` tokens.",
+      "properties": {
+        "keep": {
+          "$ref": "#/$defs/TruncationShape"
+        },
+        "mode": {
+          "enum": [
+            "always"
+          ],
+          "type": "string"
+        },
+        "to": {
+          "$ref": "#/$defs/TokenEstimate"
+        }
+      },
+      "required": [
+        "to",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "TruncationKeep": {
+      "description": "Replay it whole, however large.",
+      "properties": {
+        "mode": {
+          "enum": [
+            "keep"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    },
+    "TruncationOver": {
+      "description": "Cut to `to` tokens, but only once the payload exceeds `over`. The common\nshape: small results replay verbatim, a runaway one is clipped.",
+      "properties": {
+        "keep": {
+          "$ref": "#/$defs/TruncationShape"
+        },
+        "mode": {
+          "enum": [
+            "over"
+          ],
+          "type": "string"
+        },
+        "over": {
+          "$ref": "#/$defs/TokenEstimate"
+        },
+        "to": {
+          "$ref": "#/$defs/TokenEstimate"
+        }
+      },
+      "required": [
+        "over",
+        "to",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "TruncationShape": {
+      "enum": [
+        "head",
+        "tail",
+        "head_and_tail"
+      ],
+      "type": "string"
+    }
+  }
+}

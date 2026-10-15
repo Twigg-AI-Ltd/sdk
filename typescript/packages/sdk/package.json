@@ -1,0 +1,47 @@
+{
+  "name": "@twigg/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Twigg API",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Twigg-AI-Ltd/sdk.git",
+    "directory": "typescript/packages/sdk"
+  },
+  "homepage": "https://twigg.ai/docs",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./browser": {
+      "source": "./src/browser.ts",
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "gen:types": "pnpm dlx --package openapi-typescript@7 --package typescript@5 openapi-typescript ../../../spec/openapi.json --empty-objects-unknown -o src/generated/schema.ts",
+    "prepack": "pnpm build"
+  }
+}
