@@ -48,24 +48,24 @@ async with AsyncTwigg() as twigg:
 ```python
 from twigg import Twigg, tool
 
-twigg = Twigg(model="gpt-6-luna")                           # key from TWIGG_API_KEY
-models = twigg.models.list()                                # names to pass as `model`
+twigg = Twigg(model="gpt-6-luna")  # key from TWIGG_API_KEY
+models = twigg.models.list()  # names to pass as `model`
 
-chat = twigg.chats.open(namespace="acme/user-99")           # new chat
-again = twigg.chat(chat_id)                                 # existing chat, no request
+chat = twigg.chats.open(namespace="acme/user-99")  # new chat
+again = twigg.chat(chat_id)  # existing chat, no request
 
-reply = chat.send("Hi")                  # .text .cost .usage .tool_calls .stop_reason
+reply = chat.send("Hi")  # .text .cost .usage .tool_calls .stop_reason
 with chat.stream("Hi") as stream:
     for text in stream.text_stream:
         print(text, end="")
-outcome = chat.run_tools("Hi", tools=[my_tool]).final()     # the tool loop
+outcome = chat.run_tools("Hi", tools=[my_tool]).final()  # the tool loop
 
-for c in twigg.chats.list(namespace="acme"): ...            # every chat, newest first
-for p in chat.history(after_ordinal=-1): ...                # transcript, oldest first
+chats = list(twigg.chats.list(namespace="acme"))  # every chat, newest first
+transcript = list(chat.history(after_ordinal=-1))  # oldest first
 
-acme = twigg.namespace("acme")                              # pins the namespace
+acme = twigg.namespace("acme")  # pins the namespace
 acme.config.instructions.publish(mode="append", body="Answer briefly.")
-run = twigg.runs.wait_for_settlement(reply.run_id)          # the final cost
+run = twigg.runs.wait_for_settlement(reply.run_id)  # the final cost
 ```
 
 `AsyncTwigg` has the same methods, awaited. Every failure is a `TwiggError`. Runnable versions of
