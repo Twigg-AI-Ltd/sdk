@@ -38,6 +38,10 @@ cd python && uv sync && uv run ruff check . && uv run ruff format --check . \
 - **The public surface follows the OpenAI/Anthropic SDK conventions** (`baseURL`, `maxRetries`,
   `finalResponse()`, `text_stream`, `APIConnectionError`) so it feels familiar. Keep it that way.
 - **No live API calls in tests.** Use the fake APIs in the test helpers or `MockTwigg`.
+- **README code blocks wrapped in `<!-- docs:name -->` markers are published on twigg.ai.**
+  twigg-api's `frontend/scripts/build-sdks.mjs` extracts them at a pinned commit for the docs
+  and the landing page. Keep the markers and names when editing; a renamed or missing block
+  fails that build.
 
 ## Layout
 

@@ -3,10 +3,13 @@
 Python client for the [Twigg API](https://twigg.ai/docs). Sync and async, fully typed, built on
 `httpx` and `pydantic`. Python 3.10+.
 
+<!-- docs:install -->
 ```bash
 pip install twigg
 ```
+<!-- /docs:install -->
 
+<!-- docs:quickstart -->
 ```python
 from twigg import Twigg
 
@@ -16,6 +19,7 @@ chat = twigg.chats.open(namespace="acme/user-99", title="Billing")
 reply = chat.send("What changed in billing?")
 print(reply.text)
 ```
+<!-- /docs:quickstart -->
 
 `model` on the client is the default for every turn; a chat's defaults or a single call can
 override it.
@@ -45,6 +49,7 @@ async with AsyncTwigg() as twigg:
 
 ## Quick reference
 
+<!-- docs:reference -->
 ```python
 from twigg import Twigg, tool
 
@@ -67,6 +72,7 @@ acme = twigg.namespace("acme")  # pins the namespace
 acme.config.instructions.publish(mode="append", body="Answer briefly.")
 run = twigg.runs.wait_for_settlement(reply.run_id)  # the final cost
 ```
+<!-- /docs:reference -->
 
 `AsyncTwigg` has the same methods, awaited. Every failure is a `TwiggError`. Runnable versions of
 all of this are in [examples/](https://github.com/Twigg-AI-Ltd/sdk/tree/main/examples).
@@ -97,6 +103,7 @@ runner) as a context manager to close it when the block ends.
 
 ## Tools
 
+<!-- docs:tools -->
 ```python
 from twigg import tool
 
@@ -110,6 +117,7 @@ def read_file(path: str) -> str:
 outcome = chat.run_tools("Summarise the billing module", tools=[read_file]).final()
 print(outcome.stop_reason, outcome.result.text)
 ```
+<!-- /docs:tools -->
 
 The input schema comes from the type hints, or from a single pydantic model parameter. Input is
 validated before the function runs; invalid input and raised exceptions go back to the model as

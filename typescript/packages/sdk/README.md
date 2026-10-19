@@ -3,14 +3,17 @@
 TypeScript client for the [Twigg API](https://twigg.ai/docs). No runtime dependencies; runs on
 Node 22+, Deno, Bun and edge runtimes.
 
+<!-- docs:install -->
 ```bash
 npm install @twigg/sdk
 ```
+<!-- /docs:install -->
 
 You do not need an SDK to use Twigg: the API is plain HTTP and there is no client-side state to
 keep in sync. This package removes the fiddly parts: parsing the stream, assembling tool calls,
 running the tool loop, and recovering a turn when the connection drops.
 
+<!-- docs:quickstart -->
 ```ts
 import { Twigg } from "@twigg/sdk";
 
@@ -20,6 +23,7 @@ const chat = await twigg.chats.open({ namespace: "acme/user-99", title: "Billing
 const reply = await chat.send("What changed in billing?");
 console.log(reply.text, reply.cost);
 ```
+<!-- /docs:quickstart -->
 
 `model` on the client is the default for every turn; a chat's defaults or a single call can
 override it.
@@ -38,6 +42,7 @@ await chat.send("Where were we?");
 
 ## Quick reference
 
+<!-- docs:reference -->
 ```ts
 import { Twigg, tool } from "@twigg/sdk";
 
@@ -58,6 +63,7 @@ const acme = twigg.namespace("acme");                               // pins the 
 await acme.config.instructions.publish({ mode: "append", body: "Answer briefly." });
 const run = await twigg.runs.waitForSettlement(reply.runId);        // the final cost
 ```
+<!-- /docs:reference -->
 
 Every failure is a `TwiggError`; `@twigg/sdk/testing` has `MockTwigg` for tests without a network.
 Runnable versions of all of this are in [examples/](https://github.com/Twigg-AI-Ltd/sdk/tree/main/examples).
@@ -117,6 +123,7 @@ stop the turn as well.
 
 ## Tools
 
+<!-- docs:tools -->
 ```ts
 import { tool } from "@twigg/sdk";
 import { z } from "zod";
@@ -131,6 +138,7 @@ const readFile = tool({
 const outcome = await chat.runTools("Summarise the billing module", { tools: [readFile] }).final();
 console.log(outcome.result.text, outcome.turns.length);
 ```
+<!-- /docs:tools -->
 
 The loop streams a turn, runs the tools it calls (up to 8 at once), submits their results, and
 repeats until the model answers without calling more.

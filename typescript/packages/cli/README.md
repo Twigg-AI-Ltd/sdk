@@ -3,6 +3,7 @@
 Twigg configuration as code. Declare system instructions, tools, context budgets and retention
 for your organisation and its namespaces in one file, review a plan, and apply it from CI.
 
+<!-- docs:quickstart -->
 ```bash
 npm install --save-dev @twigg/cli
 export TWIGG_API_KEY=tw_...
@@ -10,6 +11,7 @@ npx twigg config pull      # start from what is configured today
 npx twigg config plan      # what would change
 npx twigg config apply     # make it so
 ```
+<!-- /docs:quickstart -->
 
 ## The file
 
@@ -17,6 +19,7 @@ npx twigg config apply     # make it so
 against [config.v1.json](https://twigg.ai/schemas/config.v1.json); the first line below gives
 editors autocomplete and validation.
 
+<!-- docs:config -->
 ```yaml
 # yaml-language-server: $schema=https://twigg.ai/schemas/config.v1.json
 version: 1
@@ -39,6 +42,7 @@ namespaces:
       body: { $file: prompts/support.md }
     tools: null
 ```
+<!-- /docs:config -->
 
 The same in TypeScript, where tools can be the SDK's `tool()` objects your agent already runs:
 
