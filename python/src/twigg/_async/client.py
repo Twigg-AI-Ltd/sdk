@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from types import TracebackType
+from typing import Any
 
 from typing_extensions import Unpack
 
@@ -10,7 +11,7 @@ from .._shared.options import TurnFields
 from .._shared.request import resolve_config
 from .._shared.result import TwiggWarning
 from ._support import HttpClient, HttpTransport, SleepFn, sleep
-from .chat import AsyncChat
+from .chat import AsyncChat, AsyncExternalChat
 from .resources import (
     AsyncCatalogueResource,
     AsyncChats,
@@ -79,6 +80,22 @@ class AsyncTwigg:
         if isinstance(chat, (ChatSummary, ChatCreated)):
             return AsyncChat(self.chats, self.responses, chat.id, defaults, chat)
         return AsyncChat(self.chats, self.responses, chat, defaults)
+
+    def chat_by_external_id(
+        self,
+        external_id: str,
+        *,
+        chat: Mapping[str, Any] | None = None,
+        **defaults: Unpack[TurnFields],
+    ) -> AsyncExternalChat:
+        """A handle on the chat holding `external_id`, your own identifier for it such as a
+        phone number. Every call addresses the chat by that id, and the first turn creates the
+        chat if no chat holds it yet, as `chat` (namespace, title, ...) describes. Nothing is
+        sent until a call is made.
+
+            twigg.chat_by_external_id(sender, chat={"namespace": "whatsapp"}).send(text)
+        """
+        return AsyncExternalChat(self.chats, self.responses, external_id, defaults, chat)
 
     def namespace(self, namespace: str) -> AsyncNamespaceScope:
         """A view of the client pinned to one namespace."""

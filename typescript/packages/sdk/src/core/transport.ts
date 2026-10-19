@@ -27,7 +27,7 @@ export interface TransportConfig {
 export type QueryValue = string | number | boolean | null | undefined;
 
 export interface ApiRequest {
-  method: "GET" | "POST" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
   query?: Record<string, QueryValue> | undefined;
   body?: unknown;

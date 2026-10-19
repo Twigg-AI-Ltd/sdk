@@ -133,7 +133,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   }
 }
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 async function client(flags: Flags, io: Io): Promise<Twigg> {
   const credentials = await resolveCredentials(flags.profile, io.env);

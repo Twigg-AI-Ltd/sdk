@@ -139,3 +139,21 @@ describe("tool concurrency", () => {
     expect(submitted.input).not.toContain(null);
   });
 });
+
+describe("tool loop idempotency keys", () => {
+  it("use only the characters the API accepts", async () => {
+    // The API allows letters, digits and `-._~` in idempotency keys; `job:0` is a 422.
+    const step = tool({ name: "step", inputSchema: { type: "object" }, run: () => "ok" });
+    const twigg = new MockTwigg().respond(
+      streamBuilder().toolCall("step", {}).done(),
+      streamBuilder().text("done").done(),
+    );
+    const chat = await twigg.chats.open({}, model);
+    await chat.runTools("go", { tools: [step], idempotencyKey: "job" }).final();
+    const keys = twigg.server.calls
+      .filter((c) => c.path.endsWith("/responses"))
+      .map((c) => (c.body as { idempotency_key: string }).idempotency_key);
+    expect(keys).toEqual(["job-0", "job-1"]);
+    for (const key of keys) expect(key).toMatch(/^[A-Za-z0-9._~-]+$/);
+  });
+});

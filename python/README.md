@@ -22,7 +22,9 @@ print(reply.text)
 <!-- /docs:quickstart -->
 
 `model` on the client is the default for every turn; a chat's defaults or a single call can
-override it.
+override it. `system` adds a system prompt to one request, after the instructions configured for
+the namespace; it is not stored, so pass it with every turn it should apply to (or in the chat's
+defaults).
 
 The chat and its history live on Twigg, so there is nothing to store. To carry on a
 conversation later, list the namespace and pick one up:
@@ -58,6 +60,7 @@ models = twigg.models.list()  # names to pass as `model`
 
 chat = twigg.chats.open(namespace="acme/user-99")  # new chat
 again = twigg.chat(chat_id)  # existing chat, no request
+by_phone = twigg.chat_by_external_id("+447700900123")  # your own id; made on first send
 
 reply = chat.send("Hi")  # .text .cost .usage .tool_calls .stop_reason
 with chat.stream("Hi") as stream:
@@ -76,6 +79,36 @@ run = twigg.runs.wait_for_settlement(reply.run_id)  # the final cost
 
 `AsyncTwigg` has the same methods, awaited. Every failure is a `TwiggError`. Runnable versions of
 all of this are in [examples/](https://github.com/Twigg-AI-Ltd/sdk/tree/main/examples).
+
+## Chats by your own id
+
+Give a chat your own identifier, such as the sender's phone number or another system's
+conversation id, and address it by that instead of Twigg's chat id. There is then no mapping to
+store: the first message creates the chat, and every later one lands in the same chat.
+
+```python
+chat = twigg.chat_by_external_id(f"whatsapp:{sender}", chat={"namespace": "support"})
+reply = chat.send(text)  # one request, whether or not the chat existed
+```
+
+Every call on the handle (`send`, `stream`, `run_tools`, `retry`, `history`, `get`, `delete`,
+`abort`) goes to the external-id routes, recovery after a dropped connection included. `chat`
+describes the chat to create; on an existing chat it is ignored, except that a different
+`namespace` is refused with 409 `external_id_namespace_mismatch`. External ids are unique per
+organisation, so prefix them (`whatsapp:`, `sms:`) to keep separate channels apart.
+
+`twigg.chats.open_by_external_id(id)` creates or fetches the chat and returns an ordinary `Chat`
+with its Twigg id. `get_by_external_id`, `delete_by_external_id` and `history_by_external_id` are
+on `twigg.chats`; `stream_by_external_id`, `run_tools_by_external_id` and `abort_by_external_id`
+are on `twigg.responses`. `chats.create(external_id=...)` sets one on a new chat, and is refused
+with 409 `external_id_taken` when another chat holds it.
+
+An external id travels in URL paths, so it appears in request logs. If it identifies a person and
+that matters to you, use a hash or another opaque value instead.
+
+When tools run somewhere else, as in an automation workflow, a second message can arrive while a
+tool is still running. Pass `wait_for_pending_tool_calls=60` and that message is refused with 409
+`tool_calls_pending` and a `Retry-After` header, instead of closing the open tool calls.
 
 ## Streaming
 
@@ -124,7 +157,9 @@ validated before the function runs; invalid input and raised exceptions go back 
 error results so it can correct itself (`on_tool_error="throw"` raises instead). Return a string,
 any JSON value, or `ToolResult` for media, an error flag or a trust level. Declare a parameter
 annotated `ToolContext` to see the call. `handlers={"name": fn}` answers tools already published
-to the namespace. On `AsyncTwigg` a turn's tools run concurrently: `async def` tools on the event
+to the namespace. `idempotency_key="job-7"` makes a restarted loop recover turns that already
+ran; turns are submitted as `job-7-0`, `job-7-1`, ..., and keys may use letters, digits and
+`-._~`. On `AsyncTwigg` a turn's tools run concurrently: `async def` tools on the event
 loop, plain `def` tools in worker threads so they never block it. With `on_tool_error="throw"`,
 the first failure cancels the tools still running beside it.
 
@@ -163,6 +198,9 @@ Every failure is a `TwiggError` carrying the API's `status`, `code`, `message`, 
 `APITimeoutError` cover failures with no response; `APITimeoutError` is also a built-in
 `TimeoutError`. A response the SDK cannot read raises `TwiggError` with
 `code="invalid_response"`.
+
+A chat already running a turn raises `ConflictError` with `code` `"chat_busy"`; wait
+`details["retry_after_secs"]` seconds (also sent as `Retry-After`) and send again.
 
 ## Forward compatibility
 

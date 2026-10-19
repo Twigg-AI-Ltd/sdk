@@ -4,6 +4,7 @@ review-regressions.test.ts), so none can come back unnoticed."""
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -18,6 +19,7 @@ from .helpers import (
     RUN_EVENT,
     answer_turn,
     call_turn,
+    chat_summary,
     done_event,
     history_page,
     json_response,
@@ -122,7 +124,7 @@ def test_a_restarted_tool_loop_does_not_run_tools_that_already_ran() -> None:
     outcome = twigg.responses.run_tools(CHAT, **ASK, tools=[step], idempotency_key="job").final()
     assert outcome.result.text == "all done"
     assert runs == ["B"]
-    assert [api.body(i)["idempotency_key"] for i in (0, 3, 6)] == ["job:0", "job:1", "job:2"]
+    assert [api.body(i)["idempotency_key"] for i in (0, 3, 6)] == ["job-0", "job-1", "job-2"]
     assert api.body(3)["input"] == [result_a]
 
 
@@ -251,3 +253,24 @@ def test_a_delta_without_block_start_starts_a_block() -> None:
     accumulator.push("delta", {"kind": "text", "text": "hi"})
     accumulator.push(*done_event())
     assert accumulator.result().text == "hi"
+
+
+def test_tool_loop_keys_use_only_characters_the_api_accepts() -> None:
+    # The API allows letters, digits and `-._~` in idempotency keys; `job:0` is a 422.
+    twigg, api, _ = setup()
+    api.reply(call_turn([("t1", "step", "{}")]), answer_turn("done"))
+
+    @tool
+    def step() -> str:
+        return "ok"
+
+    twigg.responses.run_tools(CHAT, **ASK, tools=[step], idempotency_key="job").final()
+    keys = [api.body(i)["idempotency_key"] for i in (0, 1)]
+    assert all(re.fullmatch(r"[A-Za-z0-9._~-]+", key) for key in keys), keys
+
+
+def test_reads_an_external_id_the_specs_pattern_misleads_pydantic_about() -> None:
+    # The spec's pattern has `[&--0]`, a range in ECMAScript and a set difference to pydantic.
+    twigg, api, _ = setup()
+    api.reply(json_response({**chat_summary(1), "external_id": "+447700"}))
+    assert twigg.chats.get_by_external_id("+447700").external_id == "+447700"

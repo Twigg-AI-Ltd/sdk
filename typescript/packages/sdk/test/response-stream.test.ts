@@ -384,6 +384,56 @@ describe("aborting", () => {
   });
 });
 
+describe("a chat addressed by external id", () => {
+  const external = "/api/v1/chats/external/%2B447700";
+
+  it("submits, recovers and aborts through the external routes", async () => {
+    const { twigg, api } = setup();
+    api.reply(
+      sseResponse(sseText([runEvent]), { dropAfter: true }),
+      json(run("succeeded", { completed_at: "2026-10-14T10:00:05Z" })),
+      json({ data: [], first_ordinal: null, last_ordinal: null, has_more: false }),
+    );
+    const result = await twigg.responses
+      .createByExternalId("+447700", { ...prompt, chat: { namespace: "acme" } })
+      .final();
+    expect(result).toMatchObject({ runId: ids.run, chatId: ids.chat, recovered: true });
+    expect(api.requests.map((r) => r.url.pathname)).toEqual([
+      `${external}/responses`,
+      `/api/v1/runs/${ids.run}`,
+      `${external}/history`,
+    ]);
+    expect(api.requests[0]?.body).toMatchObject({ chat: { namespace: "acme" } });
+  });
+
+  it("stops the run by external id", async () => {
+    const { twigg, api } = setup();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode(sseText([runEvent])));
+        await gate;
+        controller.enqueue(encoder.encode(sseText([doneEvent({ stop_reason: "aborted" })])));
+        controller.close();
+      },
+    });
+    api.reply(new Response(body), () => {
+      release();
+      return json({ run_id: ids.run, chat_id: ids.chat, status: "aborting" }, 202);
+    });
+    const stream = twigg.chatByExternalId("+447700", { model: "m" }).stream("Hi");
+    const final = stream.final();
+    await stream.abort();
+    await final;
+    expect(api.requests[1]?.url.pathname).toBe(`${external}/abort`);
+    expect(api.requests[1]?.url.searchParams.get("run_id")).toBe(ids.run);
+  });
+});
+
 describe("forwarding", () => {
   it("re-emits the stream as server-sent events", async () => {
     const { twigg, api } = setup();

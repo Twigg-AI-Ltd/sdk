@@ -8,6 +8,7 @@ import type {
   CreateResponseRequest,
   HistoryBody,
   HistoryPart,
+  OpenChatRequest,
   ResponseEvent,
   RunInspection,
 } from "../types.js";
@@ -106,6 +107,7 @@ export class MockServer {
     if (resource === "models" && method === "GET") return json(this.models);
     if (resource === "runs" && id && method === "GET") return json(this.run(id));
     if (resource !== "chats") return notMocked(method, s);
+    if (id === "external" && sub && s.length <= 6) return this.external(method, s, query, body);
     if (!id) {
       if (method === "POST") return json(this.createChat(body as CreateChatRequest), 201);
       if (method === "GET") return json(this.listChats(query));
@@ -129,10 +131,46 @@ export class MockServer {
     return notMocked(method, s);
   }
 
+  /** A route under `/chats/external/{external_id}`: the by-id route for the chat holding it. */
+  private external(
+    method: string,
+    s: string[],
+    query: Record<string, string>,
+    body: unknown,
+  ): Promise<Response> {
+    const [, , , , externalId = "", sub] = s;
+    const held = [...this.chats.values()].find((c) => c.external_id === externalId);
+    // Opening, and a turn's submission, create the chat on first use.
+    const open =
+      method === "PUT" && !sub
+        ? ((body ?? {}) as OpenChatRequest)
+        : method === "POST" && sub === "responses"
+          ? ((body as { chat?: OpenChatRequest | null }).chat ?? {})
+          : undefined;
+    if (open && !held) {
+      const chat = this.createChat({ ...open, external_id: externalId });
+      if (!sub) return Promise.resolve(json(chat, 201));
+      return this.route(method, ["api", "v1", "chats", chat.id, sub], query, body);
+    }
+    if (!held) return Promise.resolve(error(404, "not_found", "not found"));
+    if (open && "namespace" in open && (open.namespace ?? null) !== held.namespace)
+      return Promise.resolve(
+        error(409, "external_id_namespace_mismatch", "the chat has a different namespace"),
+      );
+    if (method === "PUT" && !sub) return Promise.resolve(json(held));
+    return this.route(method, ["api", "v1", "chats", held.id, ...(sub ? [sub] : [])], query, body);
+  }
+
   private createChat(request: CreateChatRequest): StoredChat {
+    if (
+      request.external_id &&
+      [...this.chats.values()].some((c) => c.external_id === request.external_id)
+    )
+      throw error(409, "external_id_taken", "another chat holds this external id");
     const chat: StoredChat = {
       id: fakeId(10),
       namespace: request.namespace ?? null,
+      external_id: request.external_id ?? null,
       title: request.title ?? null,
       description: request.description ?? null,
       user_metadata: request.user_metadata ?? {},

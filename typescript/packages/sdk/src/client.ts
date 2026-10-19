@@ -1,4 +1,4 @@
-import { Chat, type ChatDefaults } from "./chat.js";
+import { Chat, type ChatDefaults, ExternalChat, type ExternalChatDefaults } from "./chat.js";
 import { type RequestOptions, sleep, Transport } from "./core/transport.js";
 import { CatalogueResource } from "./resources/catalogue.js";
 import { Chats } from "./resources/chats.js";
@@ -96,6 +96,17 @@ export class Twigg {
   ): Chat {
     if (typeof chat === "string") return new Chat(this.chats, this.responses, chat, defaults, data);
     return new Chat(this.chats, this.responses, chat.id, defaults, chat);
+  }
+
+  /**
+   * A handle on the chat holding `externalId`, your own identifier for it such as a phone
+   * number. Every call addresses the chat by that id, and the first turn creates the chat if no
+   * chat holds it yet, as `defaults.chat` describes. Nothing is sent until a call is made.
+   *
+   *   await twigg.chatByExternalId(from, { model, chat: { namespace: "whatsapp" } }).send(text)
+   */
+  chatByExternalId(externalId: string, defaults: ExternalChatDefaults = {}): ExternalChat {
+    return new ExternalChat(this.chats, this.responses, externalId, defaults);
   }
 
   /** A view of the client pinned to one namespace. */

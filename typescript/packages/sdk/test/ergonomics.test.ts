@@ -38,6 +38,30 @@ describe("chat handles", () => {
     expect(api.last.body).not.toHaveProperty("recover");
     expect(api.last.body).not.toHaveProperty("timeout");
   });
+
+  it("opens a chat by external id and sends by its id", async () => {
+    const { twigg, api } = setup();
+    api.reply(json({ id: ids.chat, external_id: "+447700" }, 201), sseResponse(textTurn()));
+    const chat = await twigg.chats.openByExternalId("+447700", { title: "Ann" }, { model: "m" });
+    expect(api.last).toMatchObject({ method: "PUT", body: { title: "Ann" } });
+    expect(api.last.url.pathname).toBe("/api/v1/chats/external/%2B447700");
+    expect(chat.data?.external_id).toBe("+447700");
+    await chat.send("Hi", { system: "Reply in Welsh.", wait_for_pending_tool_calls: 30 });
+    expect(api.last.url.pathname).toBe(`/api/v1/chats/${ids.chat}/responses`);
+    expect(api.last.body).toMatchObject({
+      system: "Reply in Welsh.",
+      wait_for_pending_tool_calls: 30,
+    });
+  });
+
+  it("does not offer the non-streaming or by-external-id request fields", () => {
+    const { twigg } = setup();
+    const chat = twigg.chat(ids.chat);
+    // @ts-expect-error The SDK always streams.
+    void chat.stream("Hi", { model: "m", stream: false });
+    // @ts-expect-error Only the by-external-id route takes `chat`.
+    void chat.stream("Hi", { model: "m", chat: { title: "x" } });
+  });
 });
 
 describe("namespace scope", () => {

@@ -1,4 +1,11 @@
-export { Chat, type ChatDefaults, type ChatToolOptions, type SendOptions } from "./chat.js";
+export {
+  Chat,
+  type ChatDefaults,
+  type ChatToolOptions,
+  ExternalChat,
+  type ExternalChatDefaults,
+  type SendOptions,
+} from "./chat.js";
 export { type ClientOptions, DEFAULT_BASE_URL, Twigg, Twigg as default } from "./client.js";
 export { DirectionalPage } from "./core/directional-page.js";
 export { Page, PagePromise } from "./core/pagination.js";
@@ -8,7 +15,7 @@ export { type MessageInput, toParts } from "./input.js";
 export { type MediaCarrier, media } from "./media.js";
 export type { HistoryPage } from "./resources/chats.js";
 export type { BudgetQuery, ScopeQuery } from "./resources/config/index.js";
-export type { ResponseRequest } from "./resources/responses.js";
+export type { ExternalResponseRequest, ResponseRequest } from "./resources/responses.js";
 export { NamespaceScope } from "./scope.js";
 export {
   type ForwardOptions,

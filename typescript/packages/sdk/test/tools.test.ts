@@ -87,11 +87,11 @@ describe("runTools", () => {
     expect(outcome.result.text).toBe("Done");
     expect(outcome.turns).toHaveLength(2);
     expect(api.requests[0]?.body).toMatchObject({
-      idempotency_key: "job-7:0",
+      idempotency_key: "job-7-0",
       tools: [readFile.definition],
     });
     expect(api.requests[1]?.body).toMatchObject({
-      idempotency_key: "job-7:1",
+      idempotency_key: "job-7-1",
       input: [
         {
           type: "tool_result",

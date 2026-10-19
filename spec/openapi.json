@@ -450,6 +450,16 @@
               }
             ]
           },
+          "external_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalChatId"
+              }
+            ]
+          },
           "id": {
             "$ref": "#/components/schemas/ChatId"
           },
@@ -483,6 +493,7 @@
           "namespace",
           "title",
           "description",
+          "external_id",
           "user_metadata",
           "created_at"
         ],
@@ -563,6 +574,17 @@
               }
             ]
           },
+          "external_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalChatId",
+                "description": "The customer's own id for the chat, when it was opened with one."
+              }
+            ]
+          },
           "id": {
             "$ref": "#/components/schemas/ChatId"
           },
@@ -604,6 +626,7 @@
           "namespace",
           "title",
           "description",
+          "external_id",
           "user_metadata",
           "length",
           "created_at",
@@ -927,6 +950,17 @@
               }
             ]
           },
+          "external_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ExternalChatId",
+                "description": "Your own identifier for the chat, such as a phone number or another\nsystem's chat id. Unique within the organisation and case-sensitive.\nOnce set, the chat can be addressed at `/api/v1/chats/external/{external_id}`.\n\nNot coerced from `\"\"`, like `namespace`: it is an address, and a client\nwhose interpolation produced an empty one has a bug a 422 should show.\nStored in the database as a keyed hash plus a sealed copy. It does\nappear in request logs, because it travels in URL paths; see the\nexternal id schema."
+              }
+            ]
+          },
           "namespace": {
             "oneOf": [
               {
@@ -957,8 +991,19 @@
       },
       "CreateResponseRequest": {
         "additionalProperties": false,
-        "description": "Submit a turn or retry the latest failed run. Responses always use server-sent events.",
+        "description": "Submit a turn or retry the latest failed run. The answer streams as server-sent events by default; send \"stream\": false to receive one JSON object instead.",
         "properties": {
+          "chat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenChatRequest",
+                "description": "Only on `/api/v1/chats/external/{external_id}/responses`: how to create\nthe chat if no chat holds that external id yet. Omit it to create one\nwith no namespace or labels. On an existing chat it is ignored, except\nthat a stated `namespace` that differs is refused with 409\n`external_id_namespace_mismatch`."
+              }
+            ]
+          },
           "idempotency_key": {
             "oneOf": [
               {
@@ -966,7 +1011,7 @@
               },
               {
                 "$ref": "#/components/schemas/IdempotencyKey",
-                "description": "Prevents a second run for the same key. Org-scoped and honoured for 24 hours.\nReusing a key returns HTTP 409 conflict naming the original run in the message;\nit does not replay the SSE stream. After a dropped connection, inspect that run\nwith GET /api/v1/runs/{run_id} and read chat history for persisted output.\nDo not generate a new key merely to retry an uncertain submission."
+                "description": "Prevents a second run for the same key. Org-scoped and honoured for 24 hours.\nLetters, digits and `-._~` only. A key belongs to the input it was first\nsent with; the same key with different input is always refused.\nReusing a key returns HTTP 409 `idempotency_key_reused` with the original\nrun in `details.run_id`; it does not replay the SSE stream. After a dropped\nconnection, inspect that run with GET /api/v1/runs/{run_id} and read chat\nhistory for persisted output. Do not generate a new key merely to retry an\nuncertain submission."
               }
             ]
           },
@@ -1009,7 +1054,22 @@
               },
               {
                 "$ref": "#/components/schemas/RunId",
-                "description": "Retry the latest failed customer run on this chat without appending input.\nSend input: [] and a new idempotency key. Supply the model and any\nrequest-level tools again; the retry uses the current configuration."
+                "description": "Retry the latest failed customer run on this chat without appending input.\nSend input: [] and a new idempotency key. Supply the model, any\nrequest-level tools and any system prompt again; the retry uses the\ncurrent configuration."
+              }
+            ]
+          },
+          "stream": {
+            "description": "`true` (the default) streams the answer as server-sent events. `false`\nwaits for the turn to finish and returns one JSON object: the ordered\ncontent, the text concatenated, the pending tool calls with their\narguments, usage and cost. Errors are then HTTP statuses throughout,\nincluding failures after the turn started, which carry `details.run_id`.\nWith `false`, reusing an `idempotency_key` whose run finished, with the\nsame `input`, returns that run's result again, with `replayed: true`,\ninstead of a 409. Send a key with every non-streaming request: a turn\nthat outlasts the request returns `504 response_timeout`, and only a key\nmakes retrying it safe.",
+            "type": "boolean"
+          },
+          "system": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SystemPrompt",
+                "description": "A system prompt for this request only.\n\nAppended after the instructions configured for the chat's namespace and\nthe organisation, never in place of them, so configured instructions\nstill apply. It is not stored in the chat's history, so send it on every\nrequest it should apply to, retries included. It is counted against the\ncontext budget like the configured instructions. An empty string is\ntreated as absent."
               }
             ]
           },
@@ -1026,6 +1086,17 @@
           "user_metadata": {
             "$ref": "#/components/schemas/UserMetadata",
             "description": "Arbitrary customer JSON, attached to every part this turn writes."
+          },
+          "wait_for_pending_tool_calls": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PendingCallWindow",
+                "description": "Protect unanswered tool calls younger than this many seconds (1 to 600).\n\nBy default, a submission that does not answer the chat's open tool calls\ncloses them, recording each as abandoned. With this set, a submission\nthat would close a call younger than the window is refused with 409\n`tool_calls_pending` and a `Retry-After` header instead, and nothing is\nwritten. Use it when tools run elsewhere, such as in an automation\nworkflow, and a second user message can arrive while a tool is running."
+              }
+            ]
           }
         },
         "required": [
@@ -1352,6 +1423,13 @@
           "event"
         ],
         "type": "object"
+      },
+      "ExternalChatId": {
+        "description": "Your own identifier for the chat, such as a phone number or a chat id from another system. Unique within your organisation, case-sensitive, printable ASCII without spaces, and without `%`, `/`, `\\`, `?`, `#` or a leading `.`, which change what a URL means. Percent-encode it in a URL path (`+` as `%2B`). It travels in URL paths, so it appears in request logs: if it identifies a person and that matters to you, send a hash or another opaque value instead of the raw identifier.",
+        "maxLength": 255,
+        "minLength": 1,
+        "pattern": "^[!\"$&--0-9:->@-\\[\\]-~][!\"$&-.0-9:->@-\\[\\]-~]*$",
+        "type": "string"
       },
       "ForeignArtifactsStrippedWarning": {
         "description": "Replay artifacts the target cannot accept were stripped: ones authored by\na different model family, or Gemini signatures minted on the other Google\nendpoint (Vertex and the Gemini API reject each other's). A signature\nfrom elsewhere is meaningless, or a hard rejection, to the target.\nExpected whenever a chat hot-swaps providers, or a Gemini chat moves\nbetween Twigg's key and the customer's own, and reported so a customer\ncomparing two runs of the same chat can see why the second one lost its\nreasoning continuity.",
@@ -2052,6 +2130,47 @@
         ],
         "type": "object"
       },
+      "OpenChatRequest": {
+        "additionalProperties": false,
+        "description": "How to open a chat addressed by external id, when it does not exist yet.\n\nThe fields of a create, minus the external id, which is in the path.",
+        "properties": {
+          "description": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatDescription"
+              }
+            ]
+          },
+          "namespace": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Namespace",
+                "description": "The scope the chat's configuration resolves against, fixed when the\nchat is created. On an existing chat it is checked only when sent: a\ndifferent value (including `null` for a namespaced chat) is refused with\n409 `external_id_namespace_mismatch`, and leaving it out skips the check.\n\nTwo layers of `Option` so \"left out\" and \"`null`\" stay distinct; see\n[`NamespaceClaim`](crate::models::domain::NamespaceClaim)."
+              }
+            ]
+          },
+          "title": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatTitle"
+              }
+            ]
+          },
+          "user_metadata": {
+            "$ref": "#/components/schemas/UserMetadata"
+          }
+        },
+        "type": "object"
+      },
       "OrganisationId": {
         "format": "uuid",
         "type": "string"
@@ -2099,6 +2218,31 @@
         "required": [
           "tool_use_id",
           "tool_name"
+        ],
+        "type": "object"
+      },
+      "PendingCallWindow": {
+        "maximum": 600,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "PendingToolCallBody": {
+        "description": "A tool call the chat is now waiting on, with its arguments.",
+        "properties": {
+          "arguments": {
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tool_use_id": {
+            "$ref": "#/components/schemas/ToolUseId"
+          }
+        },
+        "required": [
+          "tool_use_id",
+          "name",
+          "arguments"
         ],
         "type": "object"
       },
@@ -2668,6 +2812,157 @@
         ],
         "type": "object"
       },
+      "ResponseBody": {
+        "description": "A completed turn: the model's output in order, its text concatenated, the tool calls now waiting for results, and the run's usage and cost.",
+        "properties": {
+          "chat_id": {
+            "$ref": "#/components/schemas/ChatId"
+          },
+          "closed_tool_calls": {
+            "description": "Tool calls this submission closed because they were never answered.",
+            "items": {
+              "$ref": "#/components/schemas/ToolUseId"
+            },
+            "type": "array"
+          },
+          "compaction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Compaction"
+              }
+            ]
+          },
+          "config_warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Warning_ConfigWarning"
+            },
+            "type": "array"
+          },
+          "content": {
+            "description": "Every block the model produced, in order.",
+            "items": {
+              "$ref": "#/components/schemas/ResponseContent"
+            },
+            "type": "array"
+          },
+          "cost": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Money",
+                "description": "Settled charge in USD for this response. `null` while settlement is\npending; read it later from `GET /api/v1/runs/{run_id}`."
+              }
+            ]
+          },
+          "cost_currency": {
+            "type": "string"
+          },
+          "model_served": {
+            "description": "The model identifier the provider reported, when it reported one. May\ndiffer in spelling from the catalogue name sent in the request.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pending_tool_calls": {
+            "description": "Tool calls this turn opened, which the chat now waits on. Send a\n`tool_result` for each in the next request.",
+            "items": {
+              "$ref": "#/components/schemas/PendingToolCallBody"
+            },
+            "type": "array"
+          },
+          "provider_response_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replayed": {
+            "description": "`true` when this is the stored result of an earlier request with the\nsame `idempotency_key`, returned instead of running the turn again.\nWarnings and compaction are not stored, so a replay reports none.",
+            "type": "boolean"
+          },
+          "run_id": {
+            "$ref": "#/components/schemas/RunId"
+          },
+          "server_tools": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerToolUsage"
+              }
+            ]
+          },
+          "stop_reason": {
+            "$ref": "#/components/schemas/StopReason"
+          },
+          "text": {
+            "description": "The `text` blocks joined with a blank line. What most integrations map\nstraight into a reply.",
+            "type": "string"
+          },
+          "translation_warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Warning_TranslationWarning"
+            },
+            "type": "array"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        },
+        "required": [
+          "run_id",
+          "chat_id",
+          "content",
+          "text",
+          "pending_tool_calls",
+          "closed_tool_calls",
+          "stop_reason",
+          "usage",
+          "cost",
+          "cost_currency",
+          "model_served",
+          "provider_response_id",
+          "server_tools",
+          "compaction",
+          "config_warnings",
+          "translation_warnings",
+          "replayed"
+        ],
+        "type": "object"
+      },
+      "ResponseContent": {
+        "description": "One block of the model's output, in the order the model produced it.",
+        "discriminator": {
+          "mapping": {
+            "reasoning": "#/components/schemas/ResponseReasoning",
+            "refusal": "#/components/schemas/ResponseRefusal",
+            "text": "#/components/schemas/ResponseText",
+            "tool_call": "#/components/schemas/ResponseToolCall"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResponseText"
+          },
+          {
+            "$ref": "#/components/schemas/ResponseReasoning"
+          },
+          {
+            "$ref": "#/components/schemas/ResponseRefusal"
+          },
+          {
+            "$ref": "#/components/schemas/ResponseToolCall"
+          }
+        ]
+      },
       "ResponseEvent": {
         "description": "Each variant is one SSE frame: `event: <event>` followed by `data: <JSON>`.\nThe wrapper documents the framing; only its `data` is sent as the JSON payload.",
         "discriminator": {
@@ -2713,6 +3008,91 @@
             "$ref": "#/components/schemas/ErrorEvent"
           }
         ]
+      },
+      "ResponseReasoning": {
+        "description": "Reasoning text the provider exposed. May be empty when the provider\nhides its reasoning.",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "reasoning"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ResponseRefusal": {
+        "description": "A refusal, in place of text.",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "refusal"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ResponseText": {
+        "description": "Text for the user.",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "text"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ResponseToolCall": {
+        "description": "A tool call for the caller to execute. Answer it with a `tool_result`\npart carrying the same `tool_use_id`.",
+        "properties": {
+          "arguments": {
+            "description": "The arguments object. When the model's output did not parse as JSON\n(it was cut off by `max_tokens`, for example), the raw string.",
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tool_use_id": {
+            "$ref": "#/components/schemas/ToolUseId"
+          },
+          "type": {
+            "enum": [
+              "tool_call"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_use_id",
+          "name",
+          "arguments",
+          "type"
+        ],
+        "type": "object"
       },
       "RetentionPolicyId": {
         "format": "uuid",
@@ -3201,6 +3581,11 @@
       },
       "SystemInstructionId": {
         "format": "uuid",
+        "type": "string"
+      },
+      "SystemPrompt": {
+        "maxLength": 100000,
+        "minLength": 1,
         "type": "string"
       },
       "TextBlockStart": {
@@ -4155,7 +4540,7 @@
         ]
       },
       "post": {
-        "description": "Create an empty chat in the authenticated organisation. All request fields are optional.",
+        "description": "Create an empty chat in the authenticated organisation. All request fields are optional. An external_id another live chat in the organisation already holds returns 409 external_id_taken; use PUT /api/v1/chats/external/{external_id} to create or get by external id.",
         "operationId": "createChat",
         "requestBody": {
           "content": {
@@ -4179,6 +4564,16 @@
             "description": "Create a chat"
           },
           "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
             "content": {
               "application/json": {
                 "schema": {
@@ -4238,6 +4633,758 @@
         "tags": [
           "customer-api",
           "Chats"
+        ]
+      }
+    },
+    "/api/v1/chats/external/{external_id}": {
+      "delete": {
+        "description": "Delete the chat holding this external id. The external id is cleared from the chat and freed, so a later message to it starts a new chat. Repeating the deletion returns 404.",
+        "operationId": "deleteChatByExternalId",
+        "parameters": [
+          {
+            "description": "Your own identifier for the chat",
+            "in": "path",
+            "name": "external_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExternalChatId"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Delete a chat by external id"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A malformed external id in the path"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Delete a chat by external id",
+        "tags": [
+          "customer-api",
+          "Chats"
+        ]
+      },
+      "get": {
+        "description": "Fetch the chat holding this external id. Unknown ids, deleted chats and another organisation's ids all return 404.",
+        "operationId": "getChatByExternalId",
+        "parameters": [
+          {
+            "description": "Your own identifier for the chat",
+            "in": "path",
+            "name": "external_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExternalChatId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSummary"
+                }
+              }
+            },
+            "description": "Get a chat by external id"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A malformed external id in the path"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Get a chat by external id",
+        "tags": [
+          "customer-api",
+          "Chats"
+        ]
+      },
+      "put": {
+        "description": "Return the chat holding this external id, creating it from the body if there is none. 201 means it was created, 200 that it already existed. On an existing chat the body is ignored, except that a namespace you send that differs from the chat's (including null for a namespaced chat) returns 409 external_id_namespace_mismatch; leaving namespace out skips the check. External ids are unique per organisation and case-sensitive; percent-encode them in the path.",
+        "operationId": "openChatByExternalId",
+        "parameters": [
+          {
+            "description": "Your own identifier for the chat",
+            "in": "path",
+            "name": "external_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExternalChatId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSummary"
+                }
+              }
+            },
+            "description": "Already existed"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSummary"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A malformed external id in the path"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Create or get a chat by external id",
+        "tags": [
+          "customer-api",
+          "Chats"
+        ]
+      }
+    },
+    "/api/v1/chats/external/{external_id}/abort": {
+      "post": {
+        "description": "The same as POST /api/v1/chats/{chat_id}/abort, for the chat holding this external id.",
+        "operationId": "abortResponseByExternalId",
+        "parameters": [
+          {
+            "description": "Your own identifier for the chat",
+            "in": "path",
+            "name": "external_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExternalChatId"
+            }
+          },
+          {
+            "description": "The run you mean to stop: the `run_id` from the stream's `run` event.\nOptional. When given, nothing else is stopped, so an abort that arrives\nlate cannot stop the chat's *next* turn by mistake.",
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RunId"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbortAccepted"
+                }
+              }
+            },
+            "description": "Abort requested"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A malformed external id in the path"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Abort the turn in progress by external id",
+        "tags": [
+          "customer-api",
+          "Responses"
+        ]
+      }
+    },
+    "/api/v1/chats/external/{external_id}/history": {
+      "get": {
+        "description": "The same as GET /api/v1/chats/{chat_id}/history, for the chat holding this external id.",
+        "operationId": "getChatHistoryByExternalId",
+        "parameters": [
+          {
+            "description": "Your own identifier for the chat",
+            "in": "path",
+            "name": "external_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExternalChatId"
+            }
+          },
+          {
+            "description": "Page **backwards** from here: the parts immediately older than this\nordinal. What a reader scrolling up sends, using the `first_ordinal` of\nthe page they already have.",
+            "in": "query",
+            "name": "before_ordinal",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Page **forwards** from here: the parts immediately newer than this\nordinal. What a UI already open sends to pick up what has arrived since,\nusing `last_ordinal`.\n\nAn **ordinal**, not a part id, because ordinals are the ledger's only\ntotal order and a client paging already holds the one it saw last. They\nare never renumbered, so a cursor stays valid; deletes leave gaps, so a\ncursor is not an index and must not be incremented by hand.",
+            "in": "query",
+            "name": "after_ordinal",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "1–100, or 1–20 with `include=full`. Out-of-range values are clamped, not\nrejected.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How much of an attachment travels: `stubs` (the default), `none`, or\n`full`.",
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "description": "The `include` parameter's vocabulary.\n\nNamed for what the client gets rather than for what we do — `stubs` is the\ndescriptor, `full` adds the bytes — because the caller is choosing the size\nof their response, not a storage strategy.",
+              "enum": [
+                "stubs",
+                "none",
+                "full"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPageResponse"
+                }
+              }
+            },
+            "description": "Read chat history by external id"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A malformed external id in the path"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Read chat history by external id",
+        "tags": [
+          "customer-api",
+          "Chats"
+        ]
+      }
+    },
+    "/api/v1/chats/external/{external_id}/responses": {
+      "post": {
+        "description": "The same as POST /api/v1/chats/{chat_id}/responses, for the chat holding this external id, which is created on first use. The optional chat object describes the chat to create; on an existing chat it is ignored, except that a namespace you send that differs from the chat's returns 409 external_id_namespace_mismatch; leaving namespace out skips the check. Send \"stream\": false to receive one JSON object instead of an event stream.",
+        "operationId": "createResponseByExternalId",
+        "parameters": [
+          {
+            "description": "Your own identifier for the chat",
+            "in": "path",
+            "name": "external_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExternalChatId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateResponseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseBody"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseEvent"
+                }
+              }
+            },
+            "description": "The answer: an event stream by default, or one JSON object with stream: false"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "chat_busy, tool_calls_pending, idempotency_key_reused or external_id_namespace_mismatch. The first two carry Retry-After.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with chat_busy and tool_calls_pending.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "response_timeout: with stream: false, the turn outlasted the request. It continues and is billed. With an idempotency_key, retry with it to receive the result; without one, do not resend."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Submit a turn by external id",
+        "tags": [
+          "customer-api",
+          "Responses"
         ]
       }
     },
@@ -4698,7 +5845,7 @@
     },
     "/api/v1/chats/{chat_id}/responses": {
       "post": {
-        "description": "Submit a prompt or tool results, then stream the model response as server-sent events. Failures before the first byte use HTTP errors; later failures use the error event. Dropping the connection does not cancel the turn.",
+        "description": "Submit a prompt or tool results. By default the answer streams as server-sent events: failures before the first byte use HTTP errors and later failures use the error event. With \"stream\": false the answer is one JSON object and every failure is an HTTP error; failures after the turn started carry details.run_id, and reusing an idempotency_key whose run finished, with the same input, returns that run's result with replayed: true. Dropping the connection does not cancel the turn. A chat already running a turn returns 409 chat_busy with Retry-After. A reused idempotency key otherwise returns 409 idempotency_key_reused with details.run_id. With wait_for_pending_tool_calls set, a submission that would close a recent unanswered tool call returns 409 tool_calls_pending with Retry-After.",
         "operationId": "createResponse",
         "parameters": [
           {
@@ -4725,13 +5872,18 @@
         "responses": {
           "200": {
             "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponseBody"
+                }
+              },
               "text/event-stream": {
                 "schema": {
                   "$ref": "#/components/schemas/ResponseEvent"
                 }
               }
             },
-            "description": "Submit a turn and stream the answer"
+            "description": "The answer: an event stream by default, or one JSON object with stream: false"
           },
           "400": {
             "content": {
@@ -4781,7 +5933,17 @@
                 }
               }
             },
-            "description": ""
+            "description": "chat_busy: the chat is running another turn; retry after Retry-After seconds. tool_calls_pending: the submission would close tool calls inside wait_for_pending_tool_calls; answer them or retry after Retry-After seconds. idempotency_key_reused: details.run_id names the run that owns the key.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with chat_busy and tool_calls_pending.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "413": {
             "content": {
@@ -4832,6 +5994,16 @@
               }
             },
             "description": ""
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "response_timeout: with stream: false, the turn outlasted the request. It continues and is billed. With an idempotency_key, retry with it to receive the result; without one, do not resend."
           }
         },
         "security": [
@@ -4839,7 +6011,7 @@
             "ApiKey": []
           }
         ],
-        "summary": "Submit a turn and stream the answer",
+        "summary": "Submit a turn and get the answer",
         "tags": [
           "customer-api",
           "Responses"

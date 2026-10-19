@@ -1,9 +1,10 @@
 // The tool loop: stream a turn, run the tools it asks for, submit their results, repeat until the
 // model answers without asking for more.
+import type { ChatRef } from "../resources/chats.js";
 import type { ResponseRequest, Responses } from "../resources/responses.js";
 import type { ResponseStream, StreamEvent, StreamOptions } from "../streaming/response-stream.js";
 import type { ResponseResult, ToolCall } from "../streaming/result.js";
-import type { ChatId, SubmittedPart } from "../types.js";
+import type { OpenChatRequest, SubmittedPart } from "../types.js";
 import { type AnyTool, type ToolContext, type ToolOutput, ToolResult } from "./tool.js";
 
 type ToolResultPart = Extract<SubmittedPart, { type: "tool_result" }>;
@@ -29,7 +30,7 @@ export interface RunToolsRequest extends Omit<ResponseRequest, "tools" | "idempo
    */
   onToolError?: "send" | "throw";
   /**
-   * Turn `n` is submitted with `${idempotencyKey}:${n}`, so a loop restarted with the same key
+   * Turn `n` is submitted with `${idempotencyKey}-${n}`, so a loop restarted with the same key
    * recovers turns that already ran instead of repeating them. Generated per turn when absent.
    */
   idempotencyKey?: string;
@@ -62,8 +63,8 @@ export class ToolRunner implements AsyncIterable<ToolRunEvent> {
 
   constructor(
     private readonly responses: Responses,
-    private readonly chatId: ChatId,
-    private readonly request: RunToolsRequest,
+    private readonly chat: ChatRef,
+    private readonly request: RunToolsRequest & { chat?: OpenChatRequest | null },
     private readonly options: StreamOptions = {},
   ) {}
 
@@ -122,13 +123,13 @@ export class ToolRunner implements AsyncIterable<ToolRunEvent> {
     let input = request.input;
 
     for (let iteration = 0; ; iteration++) {
-      const stream = this.responses.create(
-        this.chatId,
+      const stream = this.responses.createAt(
+        this.chat,
         {
           ...request,
           input,
           ...(definitions.length > 0 ? { tools: definitions } : {}),
-          ...(idempotencyKey ? { idempotency_key: `${idempotencyKey}:${iteration}` } : {}),
+          ...(idempotencyKey ? { idempotency_key: `${idempotencyKey}-${iteration}` } : {}),
         },
         this.options,
       );

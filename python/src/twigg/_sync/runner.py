@@ -23,6 +23,7 @@ from ..errors import StreamError
 from ._support import Lock, call_tool, gather_limited, try_acquire
 
 if TYPE_CHECKING:
+    from .resources import ChatRef
     from .responses import Responses
     from .stream import ResponseStream
 
@@ -59,7 +60,7 @@ class ToolRunner:
     def __init__(
         self,
         responses: Responses,
-        chat_id: str,
+        chat: ChatRef,
         request: dict[str, Any],
         *,
         tools: Sequence[Tool],
@@ -71,7 +72,7 @@ class ToolRunner:
         stream_options: dict[str, Any],
     ) -> None:
         self._responses = responses
-        self._chat_id = chat_id
+        self._chat = chat
         self._request = request
         self._tools = {t.name: t for t in tools}
         self._handlers = dict(handlers)
@@ -161,13 +162,13 @@ class ToolRunner:
         parts: list[Any] = list(self._request.pop("input"))
         iteration = 0
         while True:
-            stream = self._responses.stream(
-                self._chat_id,
+            stream = self._responses._stream(
+                self._chat,
                 **self._request,
                 input=parts,
                 tools=definitions or None,
                 idempotency_key=(
-                    f"{self._idempotency_key}:{iteration}" if self._idempotency_key else None
+                    f"{self._idempotency_key}-{iteration}" if self._idempotency_key else None
                 ),
                 **self._stream_options,
             )

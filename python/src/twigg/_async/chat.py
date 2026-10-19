@@ -10,32 +10,32 @@ from typing_extensions import Unpack
 from .._generated.models import AbortAccepted, ChatCreated, ChatSummary, HistoryPart
 from .._shared.input import MessageInput, to_parts
 from .._shared.options import RetryFields, ToolLoopFields, TurnFields, pick
-from .._shared.request import RequestOptions
+from .._shared.request import RequestOptions, compact
 from .._shared.result import ResponseResult
 from .pagination import AsyncHistoryPage
-from .resources import AsyncChats, Id
+from .resources import AsyncChats, ChatRef, ExternalRef, Id
 from .responses import AsyncResponses
 from .runner import AsyncToolRunner
 from .stream import AsyncResponseStream
 
 
-class AsyncChat:
+class _AsyncChatHandle:
+    """What a chat handle's calls share, whichever way the handle addresses the chat."""
+
+    _ref: ChatRef
+    #: Sent with every turn, for a handle that creates its chat on first use.
+    _create: Mapping[str, Any] | None = None
+
     def __init__(
         self,
         chats: AsyncChats,
         responses: AsyncResponses,
-        chat_id: Id,
         defaults: Mapping[str, Any] | None = None,
-        data: ChatCreated | ChatSummary | None = None,
     ) -> None:
         self._chats = chats
         self._responses = responses
-        self.id = str(chat_id)
         #: Request fields filled in when a call leaves them out, such as `model`.
         self.defaults: dict[str, Any] = dict(defaults or {})
-        #: The chat's record, when this handle came from `chats.open`, or from a listing or
-        #: `get` passed to `twigg.chat`.
-        self.data = data
 
     async def send(self, input: MessageInput, **fields: Unpack[TurnFields]) -> ResponseResult:
         """Send a message and wait for the full answer. `fields` are request fields such as
@@ -45,17 +45,21 @@ class AsyncChat:
     def stream(self, input: MessageInput, **fields: Unpack[TurnFields]) -> AsyncResponseStream:
         """Send a message and stream the answer."""
         request: dict[str, Any] = {**pick(self.defaults, TurnFields), **fields}
-        return self._responses.stream(self.id, input=to_parts(input), **request)
+        return self._responses._stream(
+            self._ref, input=to_parts(input), chat=self._create, **request
+        )
 
     def run_tools(self, input: MessageInput, **fields: Unpack[ToolLoopFields]) -> AsyncToolRunner:
         """Send a message and run the tool loop until the model stops calling tools."""
         request: dict[str, Any] = {**pick(self.defaults, ToolLoopFields), **fields}
-        return self._responses.run_tools(self.id, input=to_parts(input), **request)
+        return self._responses._run_tools(
+            self._ref, input=to_parts(input), chat=self._create, **request
+        )
 
     def retry(self, run_id: Id, **fields: Unpack[RetryFields]) -> AsyncResponseStream:
         """Retry the latest failed run without adding input."""
         request: dict[str, Any] = {**pick(self.defaults, RetryFields), **fields}
-        return self._responses.retry(self.id, run_id, **request)
+        return self._responses._stream(self._ref, input=[], retry_of=run_id, **request)
 
     async def history(
         self,
@@ -68,26 +72,63 @@ class AsyncChat:
     ) -> AsyncHistoryPage[HistoryPart]:
         """Read the chat's parts; see `chats.history`. `after_ordinal=-1` reads from the start,
         oldest first."""
-        return await self._chats.history(
-            self.id,
-            before_ordinal=before_ordinal,
-            after_ordinal=after_ordinal,
-            limit=limit,
-            include=include,
-            options=options,
+        query = compact(
+            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
         )
+        return await self._chats._history_at(self._ref, query, options)
 
     async def get(self, *, options: RequestOptions | None = None) -> ChatSummary:
-        return await self._chats.get(self.id, options=options)
+        return await self._chats._get_at(self._ref, options)
 
     async def delete(self, *, options: RequestOptions | None = None) -> None:
-        await self._chats.delete(self.id, options=options)
+        await self._chats._delete_at(self._ref, options)
 
     async def abort(
         self, run_id: Id | None = None, *, options: RequestOptions | None = None
     ) -> AbortAccepted:
         """Stop the turn in progress, or only `run_id` when given."""
-        return await self._responses.abort(self.id, run_id=run_id, options=options)
+        return await self._responses._aborts.abort(self._ref, run_id=run_id, options=options)
+
+
+class AsyncChat(_AsyncChatHandle):
+    def __init__(
+        self,
+        chats: AsyncChats,
+        responses: AsyncResponses,
+        chat_id: Id,
+        defaults: Mapping[str, Any] | None = None,
+        data: ChatCreated | ChatSummary | None = None,
+    ) -> None:
+        super().__init__(chats, responses, defaults)
+        self.id = str(chat_id)
+        self._ref = self.id
+        #: The chat's record, when this handle came from `chats.open`, or from a listing or
+        #: `get` passed to `twigg.chat`.
+        self.data = data
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.id!r})"
+
+
+class AsyncExternalChat(_AsyncChatHandle):
+    """A handle on the chat holding an external id, your own identifier for it such as a phone
+    number. Every call addresses the chat by that id, so none needs Twigg's chat id, and the
+    first turn creates the chat if no chat holds the id yet: one request per message."""
+
+    def __init__(
+        self,
+        chats: AsyncChats,
+        responses: AsyncResponses,
+        external_id: str,
+        defaults: Mapping[str, Any] | None = None,
+        chat: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(chats, responses, defaults)
+        self.external_id = external_id
+        self._ref = ExternalRef(external_id)
+        #: How to create the chat if no chat holds the id yet. On an existing chat it is
+        #: ignored, except that a differing `namespace` is refused with 409.
+        self._create = chat
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.external_id!r})"

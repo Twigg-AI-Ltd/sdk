@@ -51,6 +51,45 @@ describe("MockTwigg", () => {
     expect(seen).toEqual(["acme/b", "acme/a", "acme"]);
   });
 
+  it("opens, gets and deletes chats by external id", async () => {
+    const twigg = new MockTwigg();
+    const first = await twigg.chats.openByExternalId("wa:1", { namespace: "acme" });
+    const again = await twigg.chats.openByExternalId("wa:1");
+    expect(again.id).toBe(first.id);
+    await expect(twigg.chats.openByExternalId("wa:1", { namespace: null })).rejects.toMatchObject({
+      status: 409,
+      code: "external_id_namespace_mismatch",
+    });
+    await expect(twigg.chats.create({ external_id: "wa:1" })).rejects.toMatchObject({
+      code: "external_id_taken",
+    });
+    expect((await twigg.chats.getByExternalId("wa:1")).id).toBe(first.id);
+    await twigg.chats.deleteByExternalId("wa:1");
+    await expect(twigg.chats.getByExternalId("wa:1")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("creates a chat addressed by external id on its first message", async () => {
+    const twigg = new MockTwigg().respond(
+      streamBuilder().text("Hello Ann").done(),
+      streamBuilder().text("Again").done(),
+    );
+    const chat = twigg.chatByExternalId("+447700", { model: "m", chat: { namespace: "wa" } });
+    const first = await chat.send("Hi");
+    await chat.send("Hi again");
+    expect(twigg.server.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "POST /api/v1/chats/external/%2B447700/responses",
+      "POST /api/v1/chats/external/%2B447700/responses",
+    ]);
+    const stored = await chat.get();
+    expect(stored).toMatchObject({ id: first.chatId, external_id: "+447700", namespace: "wa" });
+    const kinds: string[] = [];
+    for await (const part of chat.history({ after_ordinal: -1 })) kinds.push(part.part.type);
+    expect(kinds).toEqual(["prompt", "message", "prompt", "message"]);
+    await expect(
+      twigg.chatByExternalId("+447700", { model: "m", chat: { namespace: "other" } }).send("x"),
+    ).rejects.toMatchObject({ code: "external_id_namespace_mismatch" });
+  });
+
   it("explains an unscripted turn", async () => {
     const twigg = new MockTwigg();
     const chat = await twigg.chats.open();

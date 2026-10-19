@@ -236,6 +236,7 @@ def chat_summary(index: int) -> dict[str, Any]:
         "namespace": None,
         "title": None,
         "description": None,
+        "external_id": None,
         "length": 0,
         "user_metadata": {},
         "updated_at": "2026-10-14T00:00:00Z",

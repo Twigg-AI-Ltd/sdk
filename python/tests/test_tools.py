@@ -71,9 +71,9 @@ def test_runs_requested_tools_and_stops_when_the_model_answers() -> None:
     assert outcome.stop_reason == "end_turn"
     assert outcome.result.text == "Done"
     assert len(outcome.turns) == 2
-    assert api.body(0)["idempotency_key"] == "job-7:0"
+    assert api.body(0)["idempotency_key"] == "job-7-0"
     assert api.body(0)["tools"] == [read_file.definition]
-    assert api.body(1)["idempotency_key"] == "job-7:1"
+    assert api.body(1)["idempotency_key"] == "job-7-1"
     assert api.body(1)["input"] == [
         {
             "type": "tool_result",

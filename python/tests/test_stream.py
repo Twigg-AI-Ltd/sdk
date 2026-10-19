@@ -270,3 +270,50 @@ def test_deltas_are_typed() -> None:
     api.reply(sse_response(text_turn("Yo")))
     deltas = [e for e in twigg.responses.stream(CHAT, **PROMPT) if isinstance(e, DeltaEvent)]
     assert [(d.kind, d.text) for d in deltas] == [("text", "Yo")]
+
+
+EXTERNAL = "/api/v1/chats/external/%2B447700"
+
+
+def test_a_chat_by_external_id_submits_and_recovers_through_the_external_routes() -> None:
+    twigg, api, _ = setup()
+    api.reply(
+        sse_response(sse_text([RUN_EVENT]), drop=True),
+        json_response(run_record("succeeded", completed_at="2026-10-14T10:00:05Z")),
+        json_response(history_page([])),
+    )
+    result = twigg.responses.stream_by_external_id(
+        "+447700", chat={"namespace": "acme"}, **PROMPT
+    ).final()
+    assert (result.run_id, result.chat_id, result.recovered) == (RUN, CHAT, True)
+    assert [r.url.raw_path.split(b"?")[0] for r in api.requests] == [
+        f"{EXTERNAL}/responses".encode(),
+        f"/api/v1/runs/{RUN}".encode(),
+        f"{EXTERNAL}/history".encode(),
+    ]
+    assert api.body(0)["chat"] == {"namespace": "acme"}
+
+
+def test_a_chat_handle_by_external_id_sends_and_aborts_by_external_id() -> None:
+    twigg, api, _ = setup()
+
+    def respond(_: httpx.Request) -> httpx.Response:
+        return sse_response(sse_text([RUN_EVENT, done_event(stop_reason="aborted")]))
+
+    api.reply(
+        sse_response(text_turn()),
+        respond,
+        json_response({"run_id": RUN, "chat_id": CHAT, "status": "aborting"}, 202),
+        json_response(history_page([])),
+    )
+    chat = twigg.chat_by_external_id("+447700", chat={"namespace": "wa"}, model="m")
+    chat.send("Hi", system="Be brief.")
+    assert api.last.url.raw_path == f"{EXTERNAL}/responses".encode()
+    assert api.body()["chat"] == {"namespace": "wa"}
+    assert api.body()["system"] == "Be brief."
+    stream = chat.stream("Again")
+    stream.abort()
+    assert stream.final().stop_reason == "aborted"
+    assert api.requests[2].url.raw_path.startswith(f"{EXTERNAL}/abort?".encode())
+    chat.history(after_ordinal=-1)
+    assert api.last.url.raw_path.startswith(f"{EXTERNAL}/history?".encode())

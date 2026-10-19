@@ -43,6 +43,7 @@ CHAT: dict[str, Any] = {
     "namespace": None,
     "title": None,
     "description": None,
+    "external_id": None,
     "user_metadata": {},
     "created_at": "2026-10-14T00:00:00Z",
 }
@@ -63,6 +64,29 @@ CALLS: dict[str, tuple[Call, Any]] = {
     "createChat": (lambda t: t.chats.create(namespace="acme", title="Billing"), CHAT),
     "getChat": (lambda t: t.chats.get(ID), chat_summary(1)),
     "deleteChat": (lambda t: t.chats.delete(ID), None),
+    "openChatByExternalId": (
+        lambda t: t.chats.open_by_external_id("+44 7700", namespace="acme"),
+        chat_summary(1),
+    ),
+    "getChatByExternalId": (lambda t: t.chats.get_by_external_id("+447700"), chat_summary(1)),
+    "deleteChatByExternalId": (lambda t: t.chats.delete_by_external_id("+447700"), None),
+    "getChatHistoryByExternalId": (
+        lambda t: t.chats.history_by_external_id("+447700", after_ordinal=-1, limit=5),
+        history_page([]),
+    ),
+    "createResponseByExternalId": (
+        lambda t: t.responses.stream_by_external_id(
+            "+447700",
+            model="m",
+            input=[{"type": "prompt", "text": "Hi"}],
+            chat={"namespace": "acme"},
+        ).final(),
+        "sse",
+    ),
+    "abortResponseByExternalId": (
+        lambda t: t.responses.abort_by_external_id("+447700", run_id=ID),
+        {"run_id": ID, "chat_id": ID, "status": "aborting"},
+    ),
     "getChatHistory": (
         lambda t: t.chats.history(ID, before_ordinal=9, limit=5, include="none"),
         history_page([]),

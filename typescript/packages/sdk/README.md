@@ -26,7 +26,9 @@ console.log(reply.text, reply.cost);
 <!-- /docs:quickstart -->
 
 `model` on the client is the default for every turn; a chat's defaults or a single call can
-override it.
+override it. `system` adds a system prompt to one request, after the instructions configured for
+the namespace; it is not stored, so pass it with every turn it should apply to (or in the chat's
+defaults).
 
 The chat and its history live on Twigg, so there is nothing to store. To carry on a
 conversation later, list the namespace and pick one up:
@@ -51,6 +53,7 @@ const models = await twigg.models.list();                          // names to p
 
 const chat = await twigg.chats.open({ namespace: "acme/user-99" }); // new chat
 const again = twigg.chat(chatId);                                   // existing chat, no request
+const byPhone = twigg.chatByExternalId("+447700900123");            // your own id; made on first send
 
 const reply = await chat.send("Hi");             // .text .cost .usage .toolCalls .stopReason
 const streamed = await chat.stream("Hi").on("text", (d) => process.stdout.write(d)).final();
@@ -67,6 +70,36 @@ const run = await twigg.runs.waitForSettlement(reply.runId);        // the final
 
 Every failure is a `TwiggError`; `@twigg/sdk/testing` has `MockTwigg` for tests without a network.
 Runnable versions of all of this are in [examples/](https://github.com/Twigg-AI-Ltd/sdk/tree/main/examples).
+
+## Chats by your own id
+
+Give a chat your own identifier, such as the sender's phone number or another system's
+conversation id, and address it by that instead of Twigg's chat id. There is then no mapping to
+store: the first message creates the chat, and every later one lands in the same chat.
+
+```ts
+const chat = twigg.chatByExternalId(`whatsapp:${from}`, { chat: { namespace: "support" } });
+const reply = await chat.send(text); // one request, whether or not the chat existed
+```
+
+Every call on the handle (`send`, `stream`, `runTools`, `retry`, `history`, `get`, `delete`,
+`abort`) goes to the external-id routes, recovery after a dropped connection included. `chat`
+describes the chat to create; on an existing chat it is ignored, except that a different
+`namespace` is refused with 409 `external_id_namespace_mismatch`. External ids are unique per
+organisation, so prefix them (`whatsapp:`, `sms:`) to keep separate channels apart.
+
+`twigg.chats.openByExternalId(id)` creates or fetches the chat and returns an ordinary `Chat` with
+its Twigg id. `getByExternalId`, `deleteByExternalId` and `historyByExternalId` are on
+`twigg.chats`; `createByExternalId`, `runToolsByExternalId` and `abortByExternalId` are on
+`twigg.responses`. `chats.create({ external_id })` sets one on a new chat, and is refused with 409
+`external_id_taken` when another chat holds it.
+
+An external id travels in URL paths, so it appears in request logs. If it identifies a person and
+that matters to you, use a hash or another opaque value instead.
+
+When tools run somewhere else, as in an automation workflow, a second message can arrive while a
+tool is still running. Pass `wait_for_pending_tool_calls: 60` and that message is refused with 409
+`tool_calls_pending` and a `Retry-After` header, instead of closing the open tool calls.
 
 ## Streaming
 
@@ -151,7 +184,8 @@ repeats until the model answers without calling more.
 - Tools already published to the namespace run through `handlers: { name: fn }`.
 - `stopReason` is the model's, or `max_iterations`, or `unhandled_tool_calls` when the model
   called a tool you have no handler for (the calls are on `result.pendingToolCalls`).
-- `idempotencyKey: "job-7"` makes a restarted loop recover turns that already ran.
+- `idempotencyKey: "job-7"` makes a restarted loop recover turns that already ran. Turns are
+  submitted as `job-7-0`, `job-7-1`, ...; keys may use letters, digits and `-._~`.
 
 ## Attachments
 
@@ -241,6 +275,9 @@ Every failure is a `TwiggError` carrying the API's `status`, `code`, `message`, 
 `RateLimitError`, `UpstreamError`, `ServiceUnavailableError`, `StreamError` (a failure after the
 stream opened), and `ConnectionError` / `TimeoutError` for failures with no response.
 
+A chat already running a turn raises `ConflictError` with `code` `chat_busy`; wait
+`details.retry_after_secs` seconds (also sent as `Retry-After`) and send again.
+
 ## Retries and timeouts
 
 Reads, deletes and restores retry up to twice on network errors, timeouts, 429 and 5xx, honouring
@@ -268,7 +305,7 @@ const twigg = new MockTwigg().respond(
 );
 ```
 
-Chats, history and runs behave like the real API, `disconnectAfter(n)` exercises recovery, and
+Chats (including chats by external id), history and runs behave like the real API, `disconnectAfter(n)` exercises recovery, and
 `twigg.server.calls` records every request. `recordingFetch` and `replayFetch` capture real
 traffic once and replay it; recordings never include headers, so keys stay out of fixtures.
 

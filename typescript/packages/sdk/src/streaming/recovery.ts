@@ -4,9 +4,9 @@
 import type { RequestOptions } from "../core/transport.js";
 import { StreamError } from "../errors.js";
 import { toSubmittable } from "../media.js";
-import type { Chats } from "../resources/chats.js";
+import type { ChatRef, Chats } from "../resources/chats.js";
 import type { Runs } from "../resources/runs.js";
-import type { ChatId, HistoryPart, RunId, RunInspection, StopReason } from "../types.js";
+import type { HistoryPart, RunId, RunInspection, StopReason } from "../types.js";
 import {
   type Block,
   parseInput,
@@ -51,7 +51,7 @@ export async function waitForRun(
  */
 export async function recoverResult(
   deps: RecoveryDeps,
-  chatId: ChatId,
+  chat: ChatRef,
   runId: RunId,
   accumulator: ResponseAccumulator,
   timeout: number,
@@ -68,7 +68,7 @@ export async function recoverResult(
   const finished = run.completed_at ? Date.parse(run.completed_at) : Number.POSITIVE_INFINITY;
   const parts: HistoryPart[] = [];
   const later = new Map<string, HistoryPart>();
-  for await (const part of deps.chats.history(chatId, {}, options)) {
+  for await (const part of deps.chats.historyAt(chat, {}, options)) {
     const at = Date.parse(part.created_at);
     if (at > finished) {
       if (part.part.type === "tool_result") later.set(part.part.tool_use_id, part);
@@ -87,7 +87,7 @@ export async function recoverResult(
     run.status === "cancelled" ? "aborted" : toolCalls.length > 0 ? "tool_use" : "end_turn";
   return {
     runId,
-    chatId,
+    chatId: run.chat_id,
     ...texts(blocks),
     blocks,
     toolCalls,

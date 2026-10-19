@@ -31,6 +31,7 @@ def test_opens_a_chat_and_sends_with_its_defaults() -> None:
         "namespace": "acme",
         "title": None,
         "description": None,
+        "external_id": None,
         "user_metadata": {},
         "created_at": "2026-10-14T00:00:00Z",
     }
@@ -56,6 +57,30 @@ def test_stream_options_stay_out_of_the_body() -> None:
     assert "idle_timeout" not in api.body()
 
 
+def test_opens_a_chat_by_external_id_and_sends_by_its_id() -> None:
+    twigg, api, _ = setup()
+    summary = {**_summary(), "external_id": "+447700"}
+    api.reply(json_response(summary, 201), sse_response(text_turn()))
+    chat = twigg.chats.open_by_external_id("+447700", title="Ann", defaults={"model": "m"})
+    assert api.last.method == "PUT"
+    assert api.last.url.raw_path == b"/api/v1/chats/external/%2B447700"
+    assert api.body() == {"title": "Ann"}
+    assert chat.id == CHAT and chat.data is not None and chat.data.external_id == "+447700"
+    chat.send("Hi", system="Reply in Welsh.", wait_for_pending_tool_calls=30)
+    assert api.last.url.path == f"/api/v1/chats/{CHAT}/responses"
+    assert api.body()["system"] == "Reply in Welsh."
+    assert api.body()["wait_for_pending_tool_calls"] == 30
+
+
+def test_open_by_external_id_sends_namespace_only_when_given() -> None:
+    twigg, api, _ = setup()
+    api.reply(json_response(_summary()), json_response(_summary()))
+    twigg.chats.open_by_external_id("wa:1")
+    assert api.body() == {}
+    twigg.chats.open_by_external_id("wa:1", namespace=None)
+    assert api.body() == {"namespace": None}
+
+
 def test_a_scope_pins_every_call_to_its_namespace() -> None:
     twigg, api, _ = setup()
     scope = twigg.namespace("acme").child("support")
@@ -64,6 +89,7 @@ def test_a_scope_pins_every_call_to_its_namespace() -> None:
         "namespace": "acme/support",
         "title": "x",
         "description": None,
+        "external_id": None,
         "user_metadata": {},
         "created_at": "2026-10-14T00:00:00Z",
     }
@@ -173,6 +199,7 @@ def _summary() -> dict[str, Any]:
         "namespace": "me",
         "title": "Plans",
         "description": None,
+        "external_id": None,
         "user_metadata": {},
         "length": 2,
         "created_at": "2026-10-14T00:00:00Z",

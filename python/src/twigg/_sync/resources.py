@@ -6,6 +6,7 @@ from __future__ import annotations
 import builtins
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import UUID
 
@@ -48,9 +49,37 @@ if TYPE_CHECKING:
     from .chat import Chat
 
 M = TypeVar("M", bound=BaseModel)
+
+
 Id = str | UUID
 UsageDimension = Literal["model", "namespace", "api_key", "organisation", "entry_type", "run"]
 _adapters: dict[Any, TypeAdapter[Any]] = {}
+
+
+@dataclass(frozen=True)
+class ExternalRef:
+    """A chat addressed by the caller's own id. Every chat route has a twin under
+    `/api/v1/chats/external/{external_id}`, so this reaches the same operations as a chat id."""
+
+    external_id: str
+
+
+#: A chat, by Twigg's id or by the caller's external id.
+ChatRef = Id | ExternalRef
+
+
+def chat_path(chat: ChatRef) -> str:
+    """The path prefix of a chat's routes."""
+    if isinstance(chat, ExternalRef):
+        return f"/api/v1/chats/external/{segment(chat.external_id)}"
+    return f"/api/v1/chats/{segment(chat)}"
+
+
+class _Unset:
+    """Marks an argument left out, where `None` is a value the API distinguishes from absence."""
+
+
+UNSET = _Unset()
 
 
 def _parse(model: type[M], data: Any) -> M:
@@ -100,6 +129,9 @@ class Resource:
             ApiRequest("POST", path, query=query, body=body, idempotent=idempotent), options
         )
 
+    def _put(self, path: str, body: Any, options: RequestOptions | None) -> Any:
+        return self._transport.json(ApiRequest("PUT", path, body=body), options)
+
     def _delete(
         self, path: str, query: Mapping[str, Any] | None, options: RequestOptions | None
     ) -> Any:
@@ -108,7 +140,7 @@ class Resource:
 
 class Chats(Resource):
     #: Set by the client so `open` can return a chat handle.
-    _handle: Callable[[ChatCreated, TurnFields | None], Chat] | None = None
+    _handle: Callable[[ChatCreated | ChatSummary, TurnFields | None], Chat] | None = None
 
     def open(
         self,
@@ -117,6 +149,7 @@ class Chats(Resource):
         namespace: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> Chat:
@@ -126,6 +159,7 @@ class Chats(Resource):
             namespace=namespace,
             title=title,
             description=description,
+            external_id=external_id,
             user_metadata=user_metadata,
             options=options,
         )
@@ -139,21 +173,84 @@ class Chats(Resource):
         namespace: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> ChatCreated:
-        """Open a chat. Every field is optional; the namespace is immutable once set."""
+        """Open a chat. Every field is optional; the namespace is immutable once set. An
+        `external_id` another chat holds is a 409; `open_by_external_id` creates or gets."""
         body = compact(
-            namespace=namespace, title=title, description=description, user_metadata=user_metadata
+            namespace=namespace,
+            title=title,
+            description=description,
+            external_id=external_id,
+            user_metadata=user_metadata,
         )
         return _parse(ChatCreated, self._post("/api/v1/chats", body, options))
 
+    def open_by_external_id(
+        self,
+        external_id: str,
+        *,
+        defaults: TurnFields | None = None,
+        namespace: str | _Unset | None = UNSET,
+        title: str | None = None,
+        description: str | None = None,
+        user_metadata: Mapping[str, Any] | None = None,
+        options: RequestOptions | None = None,
+    ) -> Chat:
+        """Return a handle on the chat holding `external_id`, your own identifier for it such
+        as a phone number, creating the chat if there is none. On an existing chat the other
+        fields are ignored, except that a `namespace` differing from the chat's (including
+        `None` for a namespaced chat) is refused with 409 `external_id_namespace_mismatch`."""
+        body = compact(title=title, description=description, user_metadata=user_metadata)
+        if not isinstance(namespace, _Unset):
+            body["namespace"] = namespace
+        path = f"/api/v1/chats/external/{segment(external_id)}"
+        chat = _parse(ChatSummary, self._put(path, body, options))
+        if self._handle is None:
+            raise RuntimeError("chats.open_by_external_id needs a client")
+        return self._handle(chat, defaults)
+
+    def get_by_external_id(
+        self, external_id: str, *, options: RequestOptions | None = None
+    ) -> ChatSummary:
+        """The chat holding `external_id`. Unknown and deleted ids are a 404."""
+        return self._get_at(ExternalRef(external_id), options)
+
+    def delete_by_external_id(
+        self, external_id: str, *, options: RequestOptions | None = None
+    ) -> None:
+        """Delete the chat holding `external_id`. The id is freed for a new chat."""
+        self._delete_at(ExternalRef(external_id), options)
+
+    def history_by_external_id(
+        self,
+        external_id: str,
+        *,
+        before_ordinal: int | None = None,
+        after_ordinal: int | None = None,
+        limit: int | None = None,
+        include: Literal["stubs", "none", "full"] | None = None,
+        options: RequestOptions | None = None,
+    ) -> HistoryPage[HistoryPart]:
+        """Read the chat holding `external_id`'s parts; see `history`."""
+        query = compact(
+            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+        )
+        return self._history_at(ExternalRef(external_id), query, options)
+
     def get(self, chat_id: Id, *, options: RequestOptions | None = None) -> ChatSummary:
-        data = self._get(f"/api/v1/chats/{segment(chat_id)}", options=options)
-        return _parse(ChatSummary, data)
+        return self._get_at(chat_id, options)
 
     def delete(self, chat_id: Id, *, options: RequestOptions | None = None) -> None:
-        self._delete(f"/api/v1/chats/{segment(chat_id)}", None, options)
+        self._delete_at(chat_id, options)
+
+    def _get_at(self, chat: ChatRef, options: RequestOptions | None) -> ChatSummary:
+        return _parse(ChatSummary, self._get(chat_path(chat), options=options))
+
+    def _delete_at(self, chat: ChatRef, options: RequestOptions | None) -> None:
+        self._delete(chat_path(chat), None, options)
 
     def list(
         self,
@@ -200,8 +297,16 @@ class Chats(Resource):
         Iterating walks backwards from there, yielding parts newest first, which is what a
         transcript view loading upwards wants. Passing `after_ordinal` pages forwards instead
         and yields parts oldest first."""
-        forward = after_ordinal is not None
-        path = f"/api/v1/chats/{segment(chat_id)}/history"
+        query = compact(
+            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+        )
+        return self._history_at(chat_id, query, options)
+
+    def _history_at(
+        self, chat: ChatRef, query: dict[str, Any], options: RequestOptions | None
+    ) -> HistoryPage[HistoryPart]:
+        forward = query.get("after_ordinal") is not None
+        path = f"{chat_path(chat)}/history"
 
         def load(query: dict[str, Any]) -> HistoryPage[HistoryPart]:
             page = _parse(HistoryPageResponse, self._get(path, query, options))
@@ -217,14 +322,7 @@ class Chats(Resource):
             )
             return HistoryPage(page.data, page.has_more, step, reverse=not forward, response=page)
 
-        return load(
-            compact(
-                before_ordinal=before_ordinal,
-                after_ordinal=after_ordinal,
-                limit=limit,
-                include=include,
-            )
-        )
+        return load(query)
 
 
 class Runs(Resource):
@@ -538,8 +636,8 @@ class Aborts(Resource):
     """The abort call, shared by the responses resource and streams."""
 
     def abort(
-        self, chat_id: Id, *, run_id: Id | None = None, options: RequestOptions | None = None
+        self, chat: ChatRef, *, run_id: Id | None = None, options: RequestOptions | None = None
     ) -> AbortAccepted:
         query = compact(run_id=None if run_id is None else str(run_id))
-        data = self._post(f"/api/v1/chats/{segment(chat_id)}/abort", None, options, query=query)
+        data = self._post(f"{chat_path(chat)}/abort", None, options, query=query)
         return _parse(AbortAccepted, data)

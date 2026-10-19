@@ -9,11 +9,26 @@ import type {
   ChatPage,
   ChatSummary,
   CreateChatRequest,
+  ExternalChatId,
   HistoryPageResponse,
   HistoryPart,
   HistoryQuery,
   ListChatsQuery,
+  OpenChatRequest,
 } from "../types.js";
+
+/**
+ * @internal A chat, by Twigg's id or by the caller's external id. Every chat route has a twin
+ * under `/api/v1/chats/external/{external_id}`, so either reaches the same operations.
+ */
+export type ChatRef = ChatId | { externalId: ExternalChatId };
+
+/** @internal The path prefix of a chat's routes. */
+export function chatPath(chat: ChatRef): string {
+  return typeof chat === "string"
+    ? path`/api/v1/chats/${chat}`
+    : path`/api/v1/chats/external/${chat.externalId}`;
+}
 
 export type HistoryPage = DirectionalPage<HistoryPart> & {
   /** Ordinal of the first part in `data`; `null` when the page is empty. */
@@ -24,7 +39,9 @@ export type HistoryPage = DirectionalPage<HistoryPart> & {
 
 export class Chats extends Resource {
   /** @internal Set by the client so `open` can return a chat handle. */
-  handle: ((id: ChatId, defaults: ChatDefaults, data: ChatCreated) => Chat) | undefined;
+  handle:
+    | ((id: ChatId, defaults: ChatDefaults, data: ChatCreated | ChatSummary) => Chat)
+    | undefined;
 
   /** Create a chat and return a handle on it, with request defaults for its turns. */
   async open(
@@ -45,16 +62,71 @@ export class Chats extends Resource {
     );
   }
 
+  /**
+   * Return a handle on the chat holding `externalId`, your own identifier for it such as a phone
+   * number, creating the chat from `body` if there is none. On an existing chat `body` is
+   * ignored, except that a `namespace` that differs from the chat's is refused with 409
+   * `external_id_namespace_mismatch`.
+   */
+  async openByExternalId(
+    externalId: ExternalChatId,
+    body: OpenChatRequest = {},
+    defaults: ChatDefaults = {},
+    options?: RequestOptions,
+  ): Promise<Chat> {
+    const chat = await this.transport.json<ChatSummary>(
+      {
+        method: "PUT",
+        path: path`/api/v1/chats/external/${externalId}`,
+        body,
+        auth: "required",
+        idempotent: true,
+      },
+      options,
+    );
+    if (!this.handle) throw new Error("Chats.openByExternalId needs a client");
+    return this.handle(chat.id, defaults, chat);
+  }
+
+  /** The chat holding `externalId`. Unknown and deleted ids are a 404. */
+  getByExternalId(externalId: ExternalChatId, options?: RequestOptions): Promise<ChatSummary> {
+    return this.getAt({ externalId }, options);
+  }
+
+  /** Delete the chat holding `externalId`. The id is freed for a new chat. */
+  deleteByExternalId(externalId: ExternalChatId, options?: RequestOptions): Promise<void> {
+    return this.deleteAt({ externalId }, options);
+  }
+
+  /** Read the chat holding `externalId`'s parts; see `history`. */
+  historyByExternalId(
+    externalId: ExternalChatId,
+    query: HistoryQuery = {},
+    options?: RequestOptions,
+  ): PagePromise<HistoryPart, HistoryPage> {
+    return this.historyAt({ externalId }, query, options);
+  }
+
   get(chatId: ChatId, options?: RequestOptions): Promise<ChatSummary> {
+    return this.getAt(chatId, options);
+  }
+
+  delete(chatId: ChatId, options?: RequestOptions): Promise<void> {
+    return this.deleteAt(chatId, options);
+  }
+
+  /** @internal */
+  getAt(chat: ChatRef, options?: RequestOptions): Promise<ChatSummary> {
     return this.transport.json(
-      { method: "GET", path: path`/api/v1/chats/${chatId}`, auth: "required", idempotent: true },
+      { method: "GET", path: chatPath(chat), auth: "required", idempotent: true },
       options,
     );
   }
 
-  delete(chatId: ChatId, options?: RequestOptions): Promise<void> {
+  /** @internal */
+  deleteAt(chat: ChatRef, options?: RequestOptions): Promise<void> {
     return this.transport.empty(
-      { method: "DELETE", path: path`/api/v1/chats/${chatId}`, auth: "required", idempotent: true },
+      { method: "DELETE", path: chatPath(chat), auth: "required", idempotent: true },
       options,
     );
   }
@@ -100,12 +172,21 @@ export class Chats extends Resource {
     query: HistoryQuery = {},
     options?: RequestOptions,
   ): PagePromise<HistoryPart, HistoryPage> {
+    return this.historyAt(chatId, query, options);
+  }
+
+  /** @internal */
+  historyAt(
+    chat: ChatRef,
+    query: HistoryQuery = {},
+    options?: RequestOptions,
+  ): PagePromise<HistoryPart, HistoryPage> {
     const forward = query.after_ordinal !== undefined && query.after_ordinal !== null;
     const load = async (q: HistoryQuery): Promise<HistoryPage> => {
       const page = await this.transport.json<HistoryPageResponse>(
         {
           method: "GET",
-          path: path`/api/v1/chats/${chatId}/history`,
+          path: `${chatPath(chat)}/history`,
           query: q,
           auth: "required",
           idempotent: true,

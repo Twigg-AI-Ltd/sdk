@@ -11,6 +11,9 @@ Client libraries for the [Twigg API](https://twigg.ai/docs).
 You do not need an SDK to use Twigg: the API is plain HTTP and there is no client-side state to
 keep in sync. The SDKs remove the fiddly parts.
 
+Version 0.2.0 of every package needs Twigg API 0.1.3 or later, for chats by external id,
+per-request system prompts and `wait_for_pending_tool_calls`.
+
 ## The contract
 
 `spec/openapi.json` and `spec/config.v1.json` are pinned copies of the API contract, generated in
@@ -44,4 +47,3 @@ pnpm build
 - [examples/](examples): one idea per script, TypeScript and Python side by side.
 - [AGENTS.md](AGENTS.md): how to work on this repository (checks, generated code, rules).
 - [RELEASING.md](RELEASING.md): how a release is cut.
-- [PLAN.md](PLAN.md): the design and the decisions behind it.

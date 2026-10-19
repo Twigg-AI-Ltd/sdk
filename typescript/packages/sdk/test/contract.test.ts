@@ -35,6 +35,29 @@ const calls: Record<string, { call: (t: Twigg) => Promise<unknown>; reply?: unkn
   createChat: { call: (t) => t.chats.create({ namespace: "acme", title: "Billing" }) },
   getChat: { call: (t) => t.chats.get(id) },
   deleteChat: { call: (t) => t.chats.delete(id) },
+  openChatByExternalId: {
+    call: (t) => t.chats.openByExternalId("+44 7700", { namespace: "acme" }),
+    reply: { id },
+  },
+  getChatByExternalId: { call: (t) => t.chats.getByExternalId("+447700") },
+  deleteChatByExternalId: { call: (t) => t.chats.deleteByExternalId("+447700") },
+  getChatHistoryByExternalId: {
+    call: (t) => t.chats.historyByExternalId("+447700", { after_ordinal: -1, limit: 5 }).then(),
+    reply: historyPage,
+  },
+  createResponseByExternalId: {
+    call: (t) =>
+      t.responses
+        .createByExternalId("+447700", {
+          model: "claude-opus-5",
+          input: [{ type: "prompt", text: "Hi" }],
+          chat: { namespace: "acme" },
+        })
+        .final(),
+  },
+  abortResponseByExternalId: {
+    call: (t) => t.responses.abortByExternalId("+447700", { run_id: id }),
+  },
   getChatHistory: {
     call: (t) => t.chats.history(id, { before_ordinal: 9, limit: 5, include: "none" }).then(),
     reply: historyPage,
@@ -115,11 +138,11 @@ describe("API contract", () => {
       const entry = calls[op.operationId];
       if (!entry) throw new Error("unreachable");
       api.reply(
-        op.operationId === "createResponse"
+        op.operationId === "createResponse" || op.operationId === "createResponseByExternalId"
           ? sseResponse(textTurn())
           : op.operationId === "getCatalogueMarkdown"
             ? new Response("|")
-            : op.operationId === "deleteChat"
+            : op.operationId === "deleteChat" || op.operationId === "deleteChatByExternalId"
               ? new Response(null, { status: 204 })
               : json(entry.reply ?? {}),
       );

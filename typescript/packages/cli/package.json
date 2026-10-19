@@ -1,6 +1,6 @@
 {
   "name": "@twigg/cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Twigg configuration as code: plan and apply instructions, tools, budgets and retention",
   "license": "MIT",
   "type": "module",

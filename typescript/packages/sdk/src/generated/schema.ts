@@ -36,9 +36,97 @@ export interface paths {
         put?: never;
         /**
          * Create a chat
-         * @description Create an empty chat in the authenticated organisation. All request fields are optional.
+         * @description Create an empty chat in the authenticated organisation. All request fields are optional. An external_id another live chat in the organisation already holds returns 409 external_id_taken; use PUT /api/v1/chats/external/{external_id} to create or get by external id.
          */
         post: operations["createChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/external/{external_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a chat by external id
+         * @description Fetch the chat holding this external id. Unknown ids, deleted chats and another organisation's ids all return 404.
+         */
+        get: operations["getChatByExternalId"];
+        /**
+         * Create or get a chat by external id
+         * @description Return the chat holding this external id, creating it from the body if there is none. 201 means it was created, 200 that it already existed. On an existing chat the body is ignored, except that a namespace you send that differs from the chat's (including null for a namespaced chat) returns 409 external_id_namespace_mismatch; leaving namespace out skips the check. External ids are unique per organisation and case-sensitive; percent-encode them in the path.
+         */
+        put: operations["openChatByExternalId"];
+        post?: never;
+        /**
+         * Delete a chat by external id
+         * @description Delete the chat holding this external id. The external id is cleared from the chat and freed, so a later message to it starts a new chat. Repeating the deletion returns 404.
+         */
+        delete: operations["deleteChatByExternalId"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/external/{external_id}/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abort the turn in progress by external id
+         * @description The same as POST /api/v1/chats/{chat_id}/abort, for the chat holding this external id.
+         */
+        post: operations["abortResponseByExternalId"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/external/{external_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read chat history by external id
+         * @description The same as GET /api/v1/chats/{chat_id}/history, for the chat holding this external id.
+         */
+        get: operations["getChatHistoryByExternalId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/external/{external_id}/responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a turn by external id
+         * @description The same as POST /api/v1/chats/{chat_id}/responses, for the chat holding this external id, which is created on first use. The optional chat object describes the chat to create; on an existing chat it is ignored, except that a namespace you send that differs from the chat's returns 409 external_id_namespace_mismatch; leaving namespace out skips the check. Send "stream": false to receive one JSON object instead of an event stream.
+         */
+        post: operations["createResponseByExternalId"];
         delete?: never;
         options?: never;
         head?: never;
@@ -119,8 +207,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit a turn and stream the answer
-         * @description Submit a prompt or tool results, then stream the model response as server-sent events. Failures before the first byte use HTTP errors; later failures use the error event. Dropping the connection does not cancel the turn.
+         * Submit a turn and get the answer
+         * @description Submit a prompt or tool results. By default the answer streams as server-sent events: failures before the first byte use HTTP errors and later failures use the error event. With "stream": false the answer is one JSON object and every failure is an HTTP error; failures after the turn started carry details.run_id, and reusing an idempotency_key whose run finished, with the same input, returns that run's result with replayed: true. Dropping the connection does not cancel the turn. A chat already running a turn returns 409 chat_busy with Retry-After. A reused idempotency key otherwise returns 409 idempotency_key_reused with details.run_id. With wait_for_pending_tool_calls set, a submission that would close a recent unanswered tool call returns 409 tool_calls_pending with Retry-After.
          */
         post: operations["createResponse"];
         delete?: never;
@@ -766,6 +854,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: null | components["schemas"]["ChatDescription"];
+            external_id: null | components["schemas"]["ExternalChatId"];
             id: components["schemas"]["ChatId"];
             namespace: null | components["schemas"]["Namespace"];
             title: null | components["schemas"]["ChatTitle"];
@@ -808,6 +897,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             description: null | components["schemas"]["ChatDescription"];
+            external_id: null | components["schemas"]["ExternalChatId"];
             id: components["schemas"]["ChatId"];
             /**
              * Format: int64
@@ -925,6 +1015,7 @@ export interface components {
          */
         CreateChatRequest: {
             description?: null | components["schemas"]["ChatDescription"];
+            external_id?: null | components["schemas"]["ExternalChatId"];
             namespace?: null | components["schemas"]["Namespace"];
             title?: null | components["schemas"]["ChatTitle"];
             /**
@@ -937,8 +1028,9 @@ export interface components {
              */
             user_metadata?: components["schemas"]["UserMetadata"];
         };
-        /** @description Submit a turn or retry the latest failed run. Responses always use server-sent events. */
+        /** @description Submit a turn or retry the latest failed run. The answer streams as server-sent events by default; send "stream": false to receive one JSON object instead. */
         CreateResponseRequest: {
+            chat?: null | components["schemas"]["OpenChatRequest"];
             idempotency_key?: null | components["schemas"]["IdempotencyKey"];
             input: components["schemas"]["SubmittedPart"][];
             /**
@@ -962,6 +1054,20 @@ export interface components {
             reasoning_effort?: null | components["schemas"]["ReasoningEffort"];
             retry_of?: null | components["schemas"]["RunId"];
             /**
+             * @description `true` (the default) streams the answer as server-sent events. `false`
+             *     waits for the turn to finish and returns one JSON object: the ordered
+             *     content, the text concatenated, the pending tool calls with their
+             *     arguments, usage and cost. Errors are then HTTP statuses throughout,
+             *     including failures after the turn started, which carry `details.run_id`.
+             *     With `false`, reusing an `idempotency_key` whose run finished, with the
+             *     same `input`, returns that run's result again, with `replayed: true`,
+             *     instead of a 409. Send a key with every non-streaming request: a turn
+             *     that outlasts the request returns `504 response_timeout`, and only a key
+             *     makes retrying it safe.
+             */
+            stream?: boolean;
+            system?: null | components["schemas"]["SystemPrompt"];
+            /**
              * @description Tools for this request alone, in the same shape a published bundle uses.
              *
              *     The **nearest** level there is, so one of these shadows a namespace or
@@ -971,6 +1077,7 @@ export interface components {
             tools?: components["schemas"]["ToolDefinition"][] | null;
             /** @description Arbitrary customer JSON, attached to every part this turn writes. */
             user_metadata?: components["schemas"]["UserMetadata"];
+            wait_for_pending_tool_calls?: null | components["schemas"]["PendingCallWindow"];
         };
         /**
          * @description Whether anything was actually withdrawn. The call is idempotent, so `false`
@@ -1081,6 +1188,8 @@ export interface components {
              */
             event: "error";
         };
+        /** @description Your own identifier for the chat, such as a phone number or a chat id from another system. Unique within your organisation, case-sensitive, printable ASCII without spaces, and without `%`, `/`, `\`, `?`, `#` or a leading `.`, which change what a URL means. Percent-encode it in a URL path (`+` as `%2B`). It travels in URL paths, so it appears in request logs: if it identifies a person and that matters to you, send a hash or another opaque value instead of the raw identifier. */
+        ExternalChatId: string;
         /**
          * @description Replay artifacts the target cannot accept were stripped: ones authored by
          *     a different model family, or Gemini signatures minted on the other Google
@@ -1385,6 +1494,17 @@ export interface components {
             dimension: "namespace";
             namespace?: null | components["schemas"]["Namespace"];
         };
+        /**
+         * @description How to open a chat addressed by external id, when it does not exist yet.
+         *
+         *     The fields of a create, minus the external id, which is in the path.
+         */
+        OpenChatRequest: {
+            description?: null | components["schemas"]["ChatDescription"];
+            namespace?: null | components["schemas"]["Namespace"];
+            title?: null | components["schemas"]["ChatTitle"];
+            user_metadata?: components["schemas"]["UserMetadata"];
+        };
         /** Format: uuid */
         OrganisationId: string;
         /** @description Usage grouped by organisation. Labels are null when unavailable. */
@@ -1400,6 +1520,13 @@ export interface components {
         };
         PendingCall: {
             tool_name: string;
+            tool_use_id: components["schemas"]["ToolUseId"];
+        };
+        PendingCallWindow: number;
+        /** @description A tool call the chat is now waiting on, with its arguments. */
+        PendingToolCallBody: {
+            arguments: Record<string, unknown>;
+            name: string;
             tool_use_id: components["schemas"]["ToolUseId"];
         };
         /**
@@ -1665,11 +1792,100 @@ export interface components {
             /** @description Every tool bundle version that contributes, root first. Same reasoning. */
             tools: components["schemas"]["ToolSchemaId"][];
         };
+        /** @description A completed turn: the model's output in order, its text concatenated, the tool calls now waiting for results, and the run's usage and cost. */
+        ResponseBody: {
+            chat_id: components["schemas"]["ChatId"];
+            /** @description Tool calls this submission closed because they were never answered. */
+            closed_tool_calls: components["schemas"]["ToolUseId"][];
+            compaction: null | components["schemas"]["Compaction"];
+            config_warnings: components["schemas"]["Warning_ConfigWarning"][];
+            /** @description Every block the model produced, in order. */
+            content: components["schemas"]["ResponseContent"][];
+            cost: null | components["schemas"]["Money"];
+            cost_currency: string;
+            /**
+             * @description The model identifier the provider reported, when it reported one. May
+             *     differ in spelling from the catalogue name sent in the request.
+             */
+            model_served: string | null;
+            /**
+             * @description Tool calls this turn opened, which the chat now waits on. Send a
+             *     `tool_result` for each in the next request.
+             */
+            pending_tool_calls: components["schemas"]["PendingToolCallBody"][];
+            provider_response_id: string | null;
+            /**
+             * @description `true` when this is the stored result of an earlier request with the
+             *     same `idempotency_key`, returned instead of running the turn again.
+             *     Warnings and compaction are not stored, so a replay reports none.
+             */
+            replayed: boolean;
+            run_id: components["schemas"]["RunId"];
+            server_tools: null | components["schemas"]["ServerToolUsage"];
+            stop_reason: components["schemas"]["StopReason"];
+            /**
+             * @description The `text` blocks joined with a blank line. What most integrations map
+             *     straight into a reply.
+             */
+            text: string;
+            translation_warnings: components["schemas"]["Warning_TranslationWarning"][];
+            usage: components["schemas"]["Usage"];
+        };
+        /** @description One block of the model's output, in the order the model produced it. */
+        ResponseContent: components["schemas"]["ResponseText"] | components["schemas"]["ResponseReasoning"] | components["schemas"]["ResponseRefusal"] | components["schemas"]["ResponseToolCall"];
         /**
          * @description Each variant is one SSE frame: `event: <event>` followed by `data: <JSON>`.
          *     The wrapper documents the framing; only its `data` is sent as the JSON payload.
          */
         ResponseEvent: components["schemas"]["RunEvent"] | components["schemas"]["ConfigWarningsEvent"] | components["schemas"]["TranslationWarningsEvent"] | components["schemas"]["CompactingEvent"] | components["schemas"]["BlockStartEvent"] | components["schemas"]["DeltaEvent"] | components["schemas"]["BlockStopEvent"] | components["schemas"]["DoneEvent"] | components["schemas"]["ErrorEvent"];
+        /**
+         * @description Reasoning text the provider exposed. May be empty when the provider
+         *     hides its reasoning.
+         */
+        ResponseReasoning: {
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "reasoning";
+        };
+        /** @description A refusal, in place of text. */
+        ResponseRefusal: {
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "refusal";
+        };
+        /** @description Text for the user. */
+        ResponseText: {
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text";
+        };
+        /**
+         * @description A tool call for the caller to execute. Answer it with a `tool_result`
+         *     part carrying the same `tool_use_id`.
+         */
+        ResponseToolCall: {
+            /**
+             * @description The arguments object. When the model's output did not parse as JSON
+             *     (it was cut off by `max_tokens`, for example), the raw string.
+             */
+            arguments: Record<string, unknown>;
+            name: string;
+            tool_use_id: components["schemas"]["ToolUseId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "tool_call";
+        };
         /** Format: uuid */
         RetentionPolicyId: string;
         /**
@@ -1925,6 +2141,7 @@ export interface components {
         };
         /** Format: uuid */
         SystemInstructionId: string;
+        SystemPrompt: string;
         TextBlockStart: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2387,6 +2604,14 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             413: {
                 headers: {
                     [name: string]: unknown;
@@ -2412,6 +2637,548 @@ export interface operations {
                 };
             };
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getChatByExternalId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Get a chat by external id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSummary"];
+                };
+            };
+            /** @description A malformed external id in the path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    openChatByExternalId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Already existed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSummary"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSummary"];
+                };
+            };
+            /** @description A malformed external id in the path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    deleteChatByExternalId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delete a chat by external id */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A malformed external id in the path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    abortResponseByExternalId: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The run you mean to stop: the `run_id` from the stream's `run` event.
+                 *     Optional. When given, nothing else is stopped, so an abort that arrives
+                 *     late cannot stop the chat's *next* turn by mistake.
+                 */
+                run_id?: components["schemas"]["RunId"];
+            };
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Abort requested */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbortAccepted"];
+                };
+            };
+            /** @description A malformed external id in the path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getChatHistoryByExternalId: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Page **backwards** from here: the parts immediately older than this
+                 *     ordinal. What a reader scrolling up sends, using the `first_ordinal` of
+                 *     the page they already have.
+                 */
+                before_ordinal?: number;
+                /**
+                 * @description Page **forwards** from here: the parts immediately newer than this
+                 *     ordinal. What a UI already open sends to pick up what has arrived since,
+                 *     using `last_ordinal`.
+                 *
+                 *     An **ordinal**, not a part id, because ordinals are the ledger's only
+                 *     total order and a client paging already holds the one it saw last. They
+                 *     are never renumbered, so a cursor stays valid; deletes leave gaps, so a
+                 *     cursor is not an index and must not be incremented by hand.
+                 */
+                after_ordinal?: number;
+                /**
+                 * @description 1–100, or 1–20 with `include=full`. Out-of-range values are clamped, not
+                 *     rejected.
+                 */
+                limit?: number;
+                /**
+                 * @description How much of an attachment travels: `stubs` (the default), `none`, or
+                 *     `full`.
+                 */
+                include?: "stubs" | "none" | "full";
+            };
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read chat history by external id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPageResponse"];
+                };
+            };
+            /** @description A malformed external id in the path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    createResponseByExternalId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateResponseRequest"];
+            };
+        };
+        responses: {
+            /** @description The answer: an event stream by default, or one JSON object with stream: false */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResponseBody"];
+                    "text/event-stream": components["schemas"]["ResponseEvent"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description chat_busy, tool_calls_pending, idempotency_key_reused or external_id_namespace_mismatch. The first two carry Retry-After. */
+            409: {
+                headers: {
+                    /** @description Seconds to wait before retrying. Sent with chat_busy and tool_calls_pending. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description response_timeout: with stream: false, the turn outlasted the request. It continues and is billed. With an idempotency_key, retry with it to receive the result; without one, do not resend. */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2762,12 +3529,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Submit a turn and stream the answer */
+            /** @description The answer: an event stream by default, or one JSON object with stream: false */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["ResponseBody"];
                     "text/event-stream": components["schemas"]["ResponseEvent"];
                 };
             };
@@ -2803,8 +3571,11 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description chat_busy: the chat is running another turn; retry after Retry-After seconds. tool_calls_pending: the submission would close tool calls inside wait_for_pending_tool_calls; answer them or retry after Retry-After seconds. idempotency_key_reused: details.run_id names the run that owns the key. */
             409: {
                 headers: {
+                    /** @description Seconds to wait before retrying. Sent with chat_busy and tool_calls_pending. */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2844,6 +3615,15 @@ export interface operations {
                 };
             };
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description response_timeout: with stream: false, the turn outlasted the request. It continues and is billed. With an idempotency_key, retry with it to receive the result; without one, do not resend. */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };

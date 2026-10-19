@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import UUID
 
@@ -47,9 +48,37 @@ if TYPE_CHECKING:
     from .chat import AsyncChat
 
 M = TypeVar("M", bound=BaseModel)
+
+
 Id = str | UUID
 UsageDimension = Literal["model", "namespace", "api_key", "organisation", "entry_type", "run"]
 _adapters: dict[Any, TypeAdapter[Any]] = {}
+
+
+@dataclass(frozen=True)
+class ExternalRef:
+    """A chat addressed by the caller's own id. Every chat route has a twin under
+    `/api/v1/chats/external/{external_id}`, so this reaches the same operations as a chat id."""
+
+    external_id: str
+
+
+#: A chat, by Twigg's id or by the caller's external id.
+ChatRef = Id | ExternalRef
+
+
+def chat_path(chat: ChatRef) -> str:
+    """The path prefix of a chat's routes."""
+    if isinstance(chat, ExternalRef):
+        return f"/api/v1/chats/external/{segment(chat.external_id)}"
+    return f"/api/v1/chats/{segment(chat)}"
+
+
+class _Unset:
+    """Marks an argument left out, where `None` is a value the API distinguishes from absence."""
+
+
+UNSET = _Unset()
 
 
 def _parse(model: type[M], data: Any) -> M:
@@ -99,6 +128,9 @@ class AsyncResource:
             ApiRequest("POST", path, query=query, body=body, idempotent=idempotent), options
         )
 
+    async def _put(self, path: str, body: Any, options: RequestOptions | None) -> Any:
+        return await self._transport.json(ApiRequest("PUT", path, body=body), options)
+
     async def _delete(
         self, path: str, query: Mapping[str, Any] | None, options: RequestOptions | None
     ) -> Any:
@@ -107,7 +139,7 @@ class AsyncResource:
 
 class AsyncChats(AsyncResource):
     #: Set by the client so `open` can return a chat handle.
-    _handle: Callable[[ChatCreated, TurnFields | None], AsyncChat] | None = None
+    _handle: Callable[[ChatCreated | ChatSummary, TurnFields | None], AsyncChat] | None = None
 
     async def open(
         self,
@@ -116,6 +148,7 @@ class AsyncChats(AsyncResource):
         namespace: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> AsyncChat:
@@ -125,6 +158,7 @@ class AsyncChats(AsyncResource):
             namespace=namespace,
             title=title,
             description=description,
+            external_id=external_id,
             user_metadata=user_metadata,
             options=options,
         )
@@ -138,21 +172,84 @@ class AsyncChats(AsyncResource):
         namespace: str | None = None,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> ChatCreated:
-        """Open a chat. Every field is optional; the namespace is immutable once set."""
+        """Open a chat. Every field is optional; the namespace is immutable once set. An
+        `external_id` another chat holds is a 409; `open_by_external_id` creates or gets."""
         body = compact(
-            namespace=namespace, title=title, description=description, user_metadata=user_metadata
+            namespace=namespace,
+            title=title,
+            description=description,
+            external_id=external_id,
+            user_metadata=user_metadata,
         )
         return _parse(ChatCreated, await self._post("/api/v1/chats", body, options))
 
+    async def open_by_external_id(
+        self,
+        external_id: str,
+        *,
+        defaults: TurnFields | None = None,
+        namespace: str | _Unset | None = UNSET,
+        title: str | None = None,
+        description: str | None = None,
+        user_metadata: Mapping[str, Any] | None = None,
+        options: RequestOptions | None = None,
+    ) -> AsyncChat:
+        """Return a handle on the chat holding `external_id`, your own identifier for it such
+        as a phone number, creating the chat if there is none. On an existing chat the other
+        fields are ignored, except that a `namespace` differing from the chat's (including
+        `None` for a namespaced chat) is refused with 409 `external_id_namespace_mismatch`."""
+        body = compact(title=title, description=description, user_metadata=user_metadata)
+        if not isinstance(namespace, _Unset):
+            body["namespace"] = namespace
+        path = f"/api/v1/chats/external/{segment(external_id)}"
+        chat = _parse(ChatSummary, await self._put(path, body, options))
+        if self._handle is None:
+            raise RuntimeError("chats.open_by_external_id needs a client")
+        return self._handle(chat, defaults)
+
+    async def get_by_external_id(
+        self, external_id: str, *, options: RequestOptions | None = None
+    ) -> ChatSummary:
+        """The chat holding `external_id`. Unknown and deleted ids are a 404."""
+        return await self._get_at(ExternalRef(external_id), options)
+
+    async def delete_by_external_id(
+        self, external_id: str, *, options: RequestOptions | None = None
+    ) -> None:
+        """Delete the chat holding `external_id`. The id is freed for a new chat."""
+        await self._delete_at(ExternalRef(external_id), options)
+
+    async def history_by_external_id(
+        self,
+        external_id: str,
+        *,
+        before_ordinal: int | None = None,
+        after_ordinal: int | None = None,
+        limit: int | None = None,
+        include: Literal["stubs", "none", "full"] | None = None,
+        options: RequestOptions | None = None,
+    ) -> AsyncHistoryPage[HistoryPart]:
+        """Read the chat holding `external_id`'s parts; see `history`."""
+        query = compact(
+            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+        )
+        return await self._history_at(ExternalRef(external_id), query, options)
+
     async def get(self, chat_id: Id, *, options: RequestOptions | None = None) -> ChatSummary:
-        data = await self._get(f"/api/v1/chats/{segment(chat_id)}", options=options)
-        return _parse(ChatSummary, data)
+        return await self._get_at(chat_id, options)
 
     async def delete(self, chat_id: Id, *, options: RequestOptions | None = None) -> None:
-        await self._delete(f"/api/v1/chats/{segment(chat_id)}", None, options)
+        await self._delete_at(chat_id, options)
+
+    async def _get_at(self, chat: ChatRef, options: RequestOptions | None) -> ChatSummary:
+        return _parse(ChatSummary, await self._get(chat_path(chat), options=options))
+
+    async def _delete_at(self, chat: ChatRef, options: RequestOptions | None) -> None:
+        await self._delete(chat_path(chat), None, options)
 
     async def list(
         self,
@@ -199,8 +296,16 @@ class AsyncChats(AsyncResource):
         Iterating walks backwards from there, yielding parts newest first, which is what a
         transcript view loading upwards wants. Passing `after_ordinal` pages forwards instead
         and yields parts oldest first."""
-        forward = after_ordinal is not None
-        path = f"/api/v1/chats/{segment(chat_id)}/history"
+        query = compact(
+            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+        )
+        return await self._history_at(chat_id, query, options)
+
+    async def _history_at(
+        self, chat: ChatRef, query: dict[str, Any], options: RequestOptions | None
+    ) -> AsyncHistoryPage[HistoryPart]:
+        forward = query.get("after_ordinal") is not None
+        path = f"{chat_path(chat)}/history"
 
         async def load(query: dict[str, Any]) -> AsyncHistoryPage[HistoryPart]:
             page = _parse(HistoryPageResponse, await self._get(path, query, options))
@@ -218,14 +323,7 @@ class AsyncChats(AsyncResource):
                 page.data, page.has_more, step, reverse=not forward, response=page
             )
 
-        return await load(
-            compact(
-                before_ordinal=before_ordinal,
-                after_ordinal=after_ordinal,
-                limit=limit,
-                include=include,
-            )
-        )
+        return await load(query)
 
 
 class AsyncRuns(AsyncResource):
@@ -553,10 +651,8 @@ class AsyncAborts(AsyncResource):
     """The abort call, shared by the responses resource and streams."""
 
     async def abort(
-        self, chat_id: Id, *, run_id: Id | None = None, options: RequestOptions | None = None
+        self, chat: ChatRef, *, run_id: Id | None = None, options: RequestOptions | None = None
     ) -> AbortAccepted:
         query = compact(run_id=None if run_id is None else str(run_id))
-        data = await self._post(
-            f"/api/v1/chats/{segment(chat_id)}/abort", None, options, query=query
-        )
+        data = await self._post(f"{chat_path(chat)}/abort", None, options, query=query)
         return _parse(AbortAccepted, data)

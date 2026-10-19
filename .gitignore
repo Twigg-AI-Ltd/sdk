@@ -12,6 +12,9 @@ coverage/
 CLAUDE.local.md
 .claude/
 
+# Maintainers' working notes, kept out of the public repository
+PLAN.md
+
 # Editor swap files
 *.swp
 *.swo

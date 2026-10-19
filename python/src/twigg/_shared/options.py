@@ -24,6 +24,10 @@ class TurnFields(TypedDict, total=False):
     max_tokens: int
     reasoning_effort: ReasoningEffort
     user_metadata: Mapping[str, Any]
+    #: Appended to the configured instructions for this request only. Not stored.
+    system: str
+    #: Refuse to close an unanswered tool call younger than this many seconds (1 to 600).
+    wait_for_pending_tool_calls: int
     #: Generated when absent. Reusing one recovers the turn it started instead of repeating it.
     idempotency_key: str
     #: Rebuild the result from the run and history if the connection drops. Default true.
@@ -49,11 +53,14 @@ class ToolLoopFields(TypedDict, total=False):
     tool_concurrency: int
     #: `send` (default) returns a tool's exception to the model; `throw` stops the loop.
     on_tool_error: Literal["send", "throw"]
-    #: Turn `n` is submitted as `f"{idempotency_key}:{n}"`, so a restarted loop recovers.
+    #: Turn `n` is submitted as `f"{idempotency_key}-{n}"`, so a restarted loop recovers.
     idempotency_key: str
     max_tokens: int
     reasoning_effort: ReasoningEffort
     user_metadata: Mapping[str, Any]
+    #: Sent with every turn of the loop.
+    system: str
+    wait_for_pending_tool_calls: int
     recover: bool
     options: RequestOptions
 
@@ -65,6 +72,7 @@ class RetryFields(TypedDict, total=False):
     tools: Sequence[Any]
     max_tokens: int
     reasoning_effort: ReasoningEffort
+    system: str
     recover: bool
     options: RequestOptions
 

@@ -1,7 +1,7 @@
 """Python SDK for the Twigg API."""
 
 from . import media, types
-from ._async.chat import AsyncChat
+from ._async.chat import AsyncChat, AsyncExternalChat
 from ._async.client import AsyncTwigg
 from ._async.pagination import AsyncHistoryPage, AsyncPage
 from ._async.runner import AsyncToolRunner
@@ -42,7 +42,7 @@ from ._shared.tools import (
     TrustLevel,
     tool,
 )
-from ._sync.chat import Chat
+from ._sync.chat import Chat, ExternalChat
 from ._sync.client import Twigg
 from ._sync.pagination import HistoryPage, Page
 from ._sync.runner import ToolResultSubmitted, ToolRunEvent, ToolRunner, TurnEvent, TurnStarted
@@ -74,6 +74,7 @@ __all__ = [
     "APIConnectionError",
     "APITimeoutError",
     "AsyncChat",
+    "AsyncExternalChat",
     "AsyncHistoryPage",
     "AsyncNamespaceScope",
     "AsyncPage",
@@ -91,6 +92,7 @@ __all__ = [
     "DeltaEvent",
     "DoneEvent",
     "ErrorEvent",
+    "ExternalChat",
     "HistoryPage",
     "IdempotencyConflictError",
     "InsufficientBalanceError",

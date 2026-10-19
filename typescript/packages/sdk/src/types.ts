@@ -9,6 +9,7 @@ type Query<Operation extends keyof operations> = NonNullable<
 
 // Identifiers
 export type ChatId = Schemas["ChatId"];
+export type ExternalChatId = Schemas["ExternalChatId"];
 export type ChatPartId = Schemas["ChatPartId"];
 export type RunId = Schemas["RunId"];
 export type ModelId = Schemas["ModelId"];
@@ -25,6 +26,7 @@ export type ErrorEnvelope = Schemas["ErrorEnvelope"];
 
 // Chats and history
 export type CreateChatRequest = Schemas["CreateChatRequest"];
+export type OpenChatRequest = Schemas["OpenChatRequest"];
 export type ChatCreated = Schemas["ChatCreated"];
 export type ChatSummary = Schemas["ChatSummary"];
 export type ChatPage = Schemas["ChatPage"];

@@ -74,6 +74,15 @@ class UnknownHistoryBody(BaseModel):
     type: str
 
 
+class UnknownResponseContent(BaseModel):
+    """A ResponseContent variant this SDK version does not know. Every field the API sent is kept."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    type: str
+
+
 class UnknownResponseEvent(BaseModel):
     """A ResponseEvent variant this SDK version does not know. Every field the API sent is kept."""
 
@@ -250,6 +259,21 @@ class ErrorEvent(BaseModel):
     event: Literal["error"]
 
 
+ExternalChatId = TypeAliasType(
+    "ExternalChatId",
+    Annotated[
+        str,
+        Field(
+            max_length=255,
+            min_length=1,
+        ),
+    ],
+)
+"""
+Your own identifier for the chat, such as a phone number or a chat id from another system. Unique within your organisation, case-sensitive, printable ASCII without spaces, and without `%`, `/`, `\\`, `?`, `#` or a leading `.`, which change what a URL means. Percent-encode it in a URL path (`+` as `%2B`). It travels in URL paths, so it appears in request logs: if it identifies a person and that matters to you, send a hash or another opaque value instead of the raw identifier.
+"""
+
+
 class ForeignArtifactsStrippedWarning(BaseModel):
     """
     Replay artifacts the target cannot accept were stripped: ones authored by
@@ -338,7 +362,11 @@ class ModelUsageGroup(BaseModel):
 Namespace = TypeAliasType(
     "Namespace",
     Annotated[
-        str, Field(max_length=255, min_length=1, pattern="^[a-z0-9_-]{1,64}(/[a-z0-9_-]{1,64})*$")
+        str,
+        Field(
+            max_length=255,
+            min_length=1,
+        ),
     ],
 )
 
@@ -388,6 +416,9 @@ class OrganisationUsageGroup(BaseModel):
     name: str | None = None
     organisation_id: UUID
     slug: str | None = None
+
+
+PendingCallWindow = TypeAliasType("PendingCallWindow", Annotated[int, Field(ge=1, le=600)])
 
 
 class PlatformDefaultBudgetSource(BaseModel):
@@ -548,6 +579,43 @@ class RefusalDelta(BaseModel):
     text: str
 
 
+class ResponseReasoning(BaseModel):
+    """
+    Reasoning text the provider exposed. May be empty when the provider
+    hides its reasoning.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    text: str
+    type: Literal["reasoning"]
+
+
+class ResponseRefusal(BaseModel):
+    """
+    A refusal, in place of text.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    text: str
+    type: Literal["refusal"]
+
+
+class ResponseText(BaseModel):
+    """
+    Text for the user.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    text: str
+    type: Literal["text"]
+
+
 class RetentionPolicyOverriddenWarning(BaseModel):
     """
     A nearer level's retention policy displaced a farther level's. This is how
@@ -646,6 +714,9 @@ class SubmittedPrompt(BaseModel):
     type: Literal["prompt"]
 
 
+SystemPrompt = TypeAliasType("SystemPrompt", Annotated[str, Field(max_length=100000, min_length=1)])
+
+
 class TextBlockStart(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -682,7 +753,11 @@ class ToolShadowedWarning(BaseModel):
     code: Literal["tool_shadowed"]
     name: str
     namespace: Annotated[
-        str, Field(max_length=255, min_length=1, pattern="^[a-z0-9_-]{1,64}(/[a-z0-9_-]{1,64})*$")
+        str,
+        Field(
+            max_length=255,
+            min_length=1,
+        ),
     ]
 
 
@@ -926,6 +1001,7 @@ class ChatCreated(BaseModel):
     )
     created_at: AwareDatetime
     description: ChatDescription | None
+    external_id: ExternalChatId | None
     id: UUID
     namespace: Namespace | None
     title: ChatTitle | None
@@ -953,6 +1029,7 @@ class ChatSummary(BaseModel):
     )
     created_at: AwareDatetime
     description: ChatDescription | None
+    external_id: ExternalChatId | None
     id: UUID
     length: int
     """
@@ -1041,6 +1118,7 @@ class CreateChatRequest(BaseModel):
         extra="allow",
     )
     description: ChatDescription | None = None
+    external_id: ExternalChatId | None = None
     namespace: Namespace | None = None
     title: ChatTitle | None = None
     user_metadata: UserMetadata | None = None
@@ -1088,7 +1166,11 @@ class GlobalInstructionReplacedWarning(BaseModel):
     )
     code: Literal["global_instruction_replaced"]
     namespace: Annotated[
-        str, Field(max_length=255, min_length=1, pattern="^[a-z0-9_-]{1,64}(/[a-z0-9_-]{1,64})*$")
+        str,
+        Field(
+            max_length=255,
+            min_length=1,
+        ),
     ]
 
 
@@ -1105,7 +1187,11 @@ class GlobalToolsReplacedWarning(BaseModel):
     code: Literal["global_tools_replaced"]
     dropped: Annotated[int, Field(ge=0)]
     namespace: Annotated[
-        str, Field(max_length=255, min_length=1, pattern="^[a-z0-9_-]{1,64}(/[a-z0-9_-]{1,64})*$")
+        str,
+        Field(
+            max_length=255,
+            min_length=1,
+        ),
     ]
 
 
@@ -1251,11 +1337,40 @@ class MediaUnsupportedWarning(BaseModel):
     mime: str
 
 
+class OpenChatRequest(BaseModel):
+    """
+    How to open a chat addressed by external id, when it does not exist yet.
+
+    The fields of a create, minus the external id, which is in the path.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    description: ChatDescription | None = None
+    namespace: Namespace | None = None
+    title: ChatTitle | None = None
+    user_metadata: UserMetadata | None = None
+
+
 class PendingCall(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
     tool_name: str
+    tool_use_id: str
+
+
+class PendingToolCallBody(BaseModel):
+    """
+    A tool call the chat is now waiting on, with its arguments.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    arguments: dict[str, Any]
+    name: str
     tool_use_id: str
 
 
@@ -1302,6 +1417,25 @@ class ResolvedConfigVersions(BaseModel):
     """
     Every tool bundle version that contributes, root first. Same reasoning.
     """
+
+
+class ResponseToolCall(BaseModel):
+    """
+    A tool call for the caller to execute. Answer it with a `tool_result`
+    part carrying the same `tool_use_id`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    arguments: dict[str, Any]
+    """
+    The arguments object. When the model's output did not parse as JSON
+    (it was cut off by `max_tokens`, for example), the raw string.
+    """
+    name: str
+    tool_use_id: str
+    type: Literal["tool_call"]
 
 
 class RunEventData(BaseModel):
@@ -2006,12 +2140,13 @@ class ConfigWarningsEvent(BaseModel):
 
 class CreateResponseRequest(BaseModel):
     """
-    Submit a turn or retry the latest failed run. Responses always use server-sent events.
+    Submit a turn or retry the latest failed run. The answer streams as server-sent events by default; send "stream": false to receive one JSON object instead.
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
+    chat: OpenChatRequest | None = None
     idempotency_key: IdempotencyKey | None = None
     input: Annotated[
         list[
@@ -2049,6 +2184,20 @@ class CreateResponseRequest(BaseModel):
     """
     reasoning_effort: Literal["off", "low", "medium", "high", "x_high", "max"] | str | None = None
     retry_of: UUID | None = None
+    stream: bool | None = None
+    """
+    `true` (the default) streams the answer as server-sent events. `false`
+    waits for the turn to finish and returns one JSON object: the ordered
+    content, the text concatenated, the pending tool calls with their
+    arguments, usage and cost. Errors are then HTTP statuses throughout,
+    including failures after the turn started, which carry `details.run_id`.
+    With `false`, reusing an `idempotency_key` whose run finished, with the
+    same `input`, returns that run's result again, with `replayed: true`,
+    instead of a 409. Send a key with every non-streaming request: a turn
+    that outlasts the request returns `504 response_timeout`, and only a key
+    makes retrying it safe.
+    """
+    system: SystemPrompt | None = None
     tools: list[ToolDefinition] | None = None
     """
     Tools for this request alone, in the same shape a published bundle uses.
@@ -2061,6 +2210,7 @@ class CreateResponseRequest(BaseModel):
     """
     Arbitrary customer JSON, attached to every part this turn writes.
     """
+    wait_for_pending_tool_calls: PendingCallWindow | None = None
 
 
 class DoneEvent(BaseModel):
@@ -2104,6 +2254,92 @@ class HistoryPageResponse(BaseModel):
     Ordinal of the last part in `data`. Pass as `after_ordinal` to pick up
     what arrives after it. `null` when the page is empty.
     """
+
+
+class ResponseBody(BaseModel):
+    """
+    A completed turn: the model's output in order, its text concatenated, the tool calls now waiting for results, and the run's usage and cost.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    chat_id: UUID
+    closed_tool_calls: list[str]
+    """
+    Tool calls this submission closed because they were never answered.
+    """
+    compaction: Compaction | None
+    config_warnings: list[
+        WarningConfigWarning2
+        | WarningConfigWarning3
+        | WarningConfigWarning4
+        | WarningConfigWarning5
+        | WarningConfigWarning6
+        | WarningConfigWarning7
+        | WarningConfigWarning8
+        | WarningConfigWarning9
+    ]
+    content: list[
+        Annotated[
+            Annotated[ResponseText, Tag("text")]
+            | Annotated[ResponseReasoning, Tag("reasoning")]
+            | Annotated[ResponseRefusal, Tag("refusal")]
+            | Annotated[ResponseToolCall, Tag("tool_call")]
+            | Annotated[UnknownResponseContent, Tag("__unknown__")],
+            _tagged(
+                "type",
+                (
+                    "text",
+                    "reasoning",
+                    "refusal",
+                    "tool_call",
+                ),
+            ),
+        ]
+    ]
+    """
+    Every block the model produced, in order.
+    """
+    cost: str | None
+    cost_currency: str
+    model_served: str | None
+    """
+    The model identifier the provider reported, when it reported one. May
+    differ in spelling from the catalogue name sent in the request.
+    """
+    pending_tool_calls: list[PendingToolCallBody]
+    """
+    Tool calls this turn opened, which the chat now waits on. Send a
+    `tool_result` for each in the next request.
+    """
+    provider_response_id: str | None
+    replayed: bool
+    """
+    `true` when this is the stored result of an earlier request with the
+    same `idempotency_key`, returned instead of running the turn again.
+    Warnings and compaction are not stored, so a replay reports none.
+    """
+    run_id: UUID
+    server_tools: ServerToolUsage | None
+    stop_reason: (
+        Literal["end_turn", "max_tokens", "tool_use", "stop_sequence", "refusal", "aborted"] | str
+    )
+    text: str
+    """
+    The `text` blocks joined with a blank line. What most integrations map
+    straight into a reply.
+    """
+    translation_warnings: list[
+        WarningTranslationWarning2
+        | WarningTranslationWarning3
+        | WarningTranslationWarning4
+        | WarningTranslationWarning5
+        | WarningTranslationWarning6
+        | WarningTranslationWarning7
+        | WarningTranslationWarning8
+    ]
+    usage: Usage
 
 
 class TextRules(BaseModel):

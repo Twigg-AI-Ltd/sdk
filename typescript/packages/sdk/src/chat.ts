@@ -2,18 +2,20 @@
 import type { PagePromise } from "./core/pagination.js";
 import type { RequestOptions } from "./core/transport.js";
 import { type MessageInput, toParts } from "./input.js";
-import type { Chats, HistoryPage } from "./resources/chats.js";
-import type { ResponseRequest, Responses } from "./resources/responses.js";
+import type { ChatRef, Chats, HistoryPage } from "./resources/chats.js";
+import type { ExternalResponseRequest, ResponseRequest, Responses } from "./resources/responses.js";
 import type { ResponseStream, StreamOptions } from "./streaming/response-stream.js";
 import type { ResponseResult } from "./streaming/result.js";
-import type { RunToolsRequest, ToolRunner } from "./tools/runner.js";
+import { type RunToolsRequest, ToolRunner } from "./tools/runner.js";
 import type {
   AbortAccepted,
   ChatCreated,
   ChatId,
   ChatSummary,
+  ExternalChatId,
   HistoryPart,
   HistoryQuery,
+  OpenChatRequest,
   RunId,
 } from "./types.js";
 
@@ -35,18 +37,16 @@ const STREAM_OPTIONS = [
   "abortRun",
 ] as const;
 
-export class Chat {
+/** What a chat handle's calls share, whichever way the handle addresses the chat. */
+abstract class ChatHandle {
   constructor(
-    private readonly chats: Chats,
-    private readonly responses: Responses,
-    readonly id: ChatId,
-    readonly defaults: ChatDefaults = {},
-    /**
-     * The chat's record, when this handle came from `chats.open`, or from a listing or `get`
-     * passed to `twigg.chat`.
-     */
-    readonly data?: ChatCreated | ChatSummary,
+    protected readonly chats: Chats,
+    protected readonly responses: Responses,
+    readonly defaults: ChatDefaults,
   ) {}
+
+  /** How this handle addresses the chat. */
+  protected abstract get ref(): ChatRef;
 
   /** Send a message and wait for the full answer. */
   send(input: MessageInput, options: SendOptions = {}): Promise<ResponseResult> {
@@ -56,9 +56,9 @@ export class Chat {
   /** Send a message and stream the answer. */
   stream(input: MessageInput, options: SendOptions = {}): ResponseStream {
     const [request, streamOptions] = split(options);
-    return this.responses.create(
-      this.id,
-      { ...this.defaults, ...request, input: toParts(input) } as ResponseRequest,
+    return this.responses.createAt(
+      this.ref,
+      { ...this.defaults, ...request, input: toParts(input) } as ExternalResponseRequest,
       streamOptions,
     );
   }
@@ -66,8 +66,9 @@ export class Chat {
   /** Send a message and run the tool loop until the model stops calling tools. */
   runTools(input: MessageInput, options: ChatToolOptions = {}): ToolRunner {
     const [request, streamOptions] = split(options);
-    return this.responses.runTools(
-      this.id,
+    return new ToolRunner(
+      this.responses,
+      this.ref,
       { ...this.defaults, ...request, input: toParts(input) } as RunToolsRequest,
       streamOptions,
     );
@@ -76,29 +77,80 @@ export class Chat {
   /** Retry the latest failed run without adding input. */
   retry(runId: RunId, options: SendOptions = {}): ResponseStream {
     const [request, streamOptions] = split(options);
-    return this.responses.retry(
-      this.id,
-      runId,
-      { ...this.defaults, ...request } as ResponseRequest,
+    return this.responses.createAt(
+      this.ref,
+      { ...this.defaults, ...request, input: [], retry_of: runId } as ResponseRequest,
       streamOptions,
     );
   }
 
   history(query?: HistoryQuery, options?: RequestOptions): PagePromise<HistoryPart, HistoryPage> {
-    return this.chats.history(this.id, query, options);
+    return this.chats.historyAt(this.ref, query, options);
   }
 
   get(options?: RequestOptions): Promise<ChatSummary> {
-    return this.chats.get(this.id, options);
+    return this.chats.getAt(this.ref, options);
   }
 
   delete(options?: RequestOptions): Promise<void> {
-    return this.chats.delete(this.id, options);
+    return this.chats.deleteAt(this.ref, options);
   }
 
   /** Stop the turn in progress, or only `runId` when given. */
   abort(runId?: RunId, options?: RequestOptions): Promise<AbortAccepted> {
-    return this.responses.abort(this.id, runId ? { run_id: runId } : {}, options);
+    return this.responses.abortAt(this.ref, runId ? { run_id: runId } : {}, options);
+  }
+}
+
+export class Chat extends ChatHandle {
+  constructor(
+    chats: Chats,
+    responses: Responses,
+    readonly id: ChatId,
+    defaults: ChatDefaults = {},
+    /**
+     * The chat's record, when this handle came from `chats.open`, or from a listing or `get`
+     * passed to `twigg.chat`.
+     */
+    readonly data?: ChatCreated | ChatSummary,
+  ) {
+    super(chats, responses, defaults);
+  }
+
+  protected get ref(): ChatRef {
+    return this.id;
+  }
+}
+
+/** Defaults for a chat addressed by external id: request fields, plus how to create the chat. */
+export type ExternalChatDefaults = ChatDefaults & {
+  /**
+   * How to create the chat if no chat holds the external id yet, sent with every turn. On an
+   * existing chat it is ignored, except that a `namespace` differing from the chat's is refused
+   * with 409 `external_id_namespace_mismatch`.
+   */
+  chat?: OpenChatRequest | null;
+};
+
+/**
+ * A handle on the chat holding an external id, your own identifier for it such as a phone number.
+ * Every call addresses the chat by that id, so none needs Twigg's chat id, and the first turn
+ * creates the chat if no chat holds the id yet: one request per message.
+ */
+export class ExternalChat extends ChatHandle {
+  declare readonly defaults: ExternalChatDefaults;
+
+  constructor(
+    chats: Chats,
+    responses: Responses,
+    readonly externalId: ExternalChatId,
+    defaults: ExternalChatDefaults = {},
+  ) {
+    super(chats, responses, defaults);
+  }
+
+  protected get ref(): ChatRef {
+    return { externalId: this.externalId };
   }
 }
 

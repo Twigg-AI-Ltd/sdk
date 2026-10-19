@@ -24,7 +24,7 @@ from .._shared.recovery import (
     later_tool_result,
     recovered_result,
 )
-from .._shared.request import ApiRequest, RequestOptions, segment, should_retry
+from .._shared.request import ApiRequest, RequestOptions, should_retry
 from .._shared.result import (
     DeltaEvent,
     RecoveredEvent,
@@ -40,6 +40,7 @@ from .._shared.sse import SseFrame, SseParser
 from ..errors import APIConnectionError, ConflictError, IdempotencyConflictError, StreamError
 from ._support import Lock, try_acquire
 from .pagination import Page
+from .resources import ChatRef, chat_path
 from .transport import Transport
 
 
@@ -47,8 +48,8 @@ from .transport import Transport
 class StreamDeps:
     transport: Transport
     get_run: Callable[[str], RunInspection]
-    history: Callable[[str], Page[HistoryPart]]
-    abort_run: Callable[[str, str], AbortAccepted]
+    history: Callable[[ChatRef], Page[HistoryPart]]
+    abort_run: Callable[[ChatRef, str], AbortAccepted]
     on_warning: Callable[[TwiggWarning], None] | None
 
 
@@ -59,7 +60,7 @@ class ResponseStream:
     def __init__(
         self,
         deps: StreamDeps,
-        chat_id: str,
+        chat: ChatRef,
         body: dict[str, Any],
         *,
         recover: bool = True,
@@ -68,7 +69,8 @@ class ResponseStream:
         options: RequestOptions | None = None,
     ) -> None:
         self._deps = deps
-        self._chat_id = chat_id
+        #: The chat, by id or by external id; submit, abort and recovery all address it so.
+        self._chat = chat
         self._body = body
         self._recover = recover
         self._idle_timeout = idle_timeout
@@ -228,7 +230,7 @@ class ResponseStream:
         }
         request = ApiRequest(
             "POST",
-            f"/api/v1/chats/{segment(self._chat_id)}/responses",
+            f"{chat_path(self._chat)}/responses",
             body=body,
             # Safe to repeat: the idempotency key turns a duplicate into a 409 naming the run.
             idempotent=True,
@@ -331,7 +333,7 @@ class ResponseStream:
     def _abort(self, run_id: str) -> None:
         # A conflict means the turn finished first; there is nothing to stop.
         with contextlib.suppress(ConflictError):
-            self._deps.abort_run(self._chat_id, run_id)
+            self._deps.abort_run(self._chat, run_id)
 
     def _recover_run(self, run_id: str) -> Generator[StreamEvent, None, None]:
         self._recovered_run = run_id
@@ -343,7 +345,7 @@ class ResponseStream:
             raise StreamError(run.error or f"Run {run_id} failed", code="run_failed", run_id=run_id)
         parts: list[HistoryPart] = []
         later: dict[str, HistoryPart] = {}
-        page = self._deps.history(self._chat_id)
+        page = self._deps.history(self._chat)
         for part in page:
             place = classify(part, run)
             if place == "later":

@@ -43,6 +43,7 @@ class ScopedChats:
         *,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> ChatCreated:
@@ -50,6 +51,7 @@ class ScopedChats:
             namespace=self._scope.namespace,
             title=title,
             description=description,
+            external_id=external_id,
             user_metadata=user_metadata,
             options=options,
         )
@@ -60,6 +62,7 @@ class ScopedChats:
         defaults: TurnFields | None = None,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> Chat:
@@ -69,6 +72,7 @@ class ScopedChats:
             namespace=self._scope.namespace,
             title=title,
             description=description,
+            external_id=external_id,
             user_metadata=user_metadata,
             options=options,
         )

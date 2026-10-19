@@ -1,8 +1,9 @@
 # Working on the Twigg SDKs
 
 Client libraries for the Twigg API: `@twigg/sdk` and `@twigg/cli` (TypeScript, in `typescript/`)
-and `twigg` (Python, in `python/`). `PLAN.md` holds the design and the decisions behind it; read
-the relevant part before changing behaviour.
+and `twigg` (Python, in `python/`). Maintainers keep the design and the decisions behind it in a
+local `PLAN.md`, outside version control; if you have it, read the relevant part before changing
+behaviour.
 
 ## Checks
 

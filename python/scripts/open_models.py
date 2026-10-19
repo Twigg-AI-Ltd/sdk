@@ -5,7 +5,11 @@ it has not seen. Pydantic validates every response, so a new run status or a new
 type would make a call that worked yesterday raise. This rewrites the generated module so that
 
 - an enum field (a `Literal` of two or more values) also accepts any other string, and
-- every discriminated union gets an `Unknown<Union>` variant that keeps whatever arrived.
+- every discriminated union gets an `Unknown<Union>` variant that keeps whatever arrived, and
+- string patterns are dropped. The models only read responses, and the API validated those values
+  before storing them. A pattern can also mean something else to pydantic's regex engine than to
+  the ECMAScript one OpenAPI uses: `[&--0]` is a range there and a set difference here, which
+  rejected every external id containing `+`.
 
 Single-value `Literal`s are left alone: they are the tags that identify a union's variants.
 
@@ -20,6 +24,7 @@ import sys
 from pathlib import Path
 
 ENUM = re.compile(r'Literal\[\s*"[^"]*"(?:\s*,\s*"[^"]*")+\s*,?\s*\]')
+PATTERN = re.compile(r"""\s*pattern=(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'),?""")
 UNION = re.compile(
     r"(?P<variants>(?!None\b)[A-Z]\w*(?:\s*\|\s*(?!None\b)[A-Z]\w*)+)(?P<none>\s*\|\s*None)?\s*,"
     r'\s*Field\(discriminator="(?P<tag>\w+)"\)'
@@ -64,6 +69,7 @@ def unions(spec: dict[str, object]) -> dict[frozenset[str], tuple[str, str, dict
 
 def rewrite(source: str, spec: dict[str, object]) -> str:
     source = ENUM.sub(lambda m: f"{m.group(0)} | str", source)
+    source = PATTERN.sub("", source)
     known = unions(spec)
     needed: dict[str, str] = {}
 

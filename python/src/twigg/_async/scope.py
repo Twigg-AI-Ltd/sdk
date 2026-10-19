@@ -42,6 +42,7 @@ class AsyncScopedChats:
         *,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> ChatCreated:
@@ -49,6 +50,7 @@ class AsyncScopedChats:
             namespace=self._scope.namespace,
             title=title,
             description=description,
+            external_id=external_id,
             user_metadata=user_metadata,
             options=options,
         )
@@ -59,6 +61,7 @@ class AsyncScopedChats:
         defaults: TurnFields | None = None,
         title: str | None = None,
         description: str | None = None,
+        external_id: str | None = None,
         user_metadata: Mapping[str, Any] | None = None,
         options: RequestOptions | None = None,
     ) -> AsyncChat:
@@ -68,6 +71,7 @@ class AsyncScopedChats:
             namespace=self._scope.namespace,
             title=title,
             description=description,
+            external_id=external_id,
             user_metadata=user_metadata,
             options=options,
         )

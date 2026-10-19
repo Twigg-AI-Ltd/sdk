@@ -9,13 +9,8 @@ import {
   StreamError,
   type TwiggError,
 } from "../errors.js";
-import type {
-  ChatId,
-  CompactingData,
-  CreateResponseRequest,
-  ResponseEvent,
-  RunId,
-} from "../types.js";
+import { type ChatRef, chatPath } from "../resources/chats.js";
+import type { CompactingData, CreateResponseRequest, ResponseEvent, RunId } from "../types.js";
 import { type RecoveryDeps, recoverResult } from "./recovery.js";
 import {
   ResponseAccumulator,
@@ -96,7 +91,7 @@ export interface StreamListeners {
 export interface StreamDeps extends RecoveryDeps {
   transport: Transport;
   /** Stop a run on the server. */
-  abortRun: (chatId: ChatId, runId: RunId) => Promise<unknown>;
+  abortRun: (chat: ChatRef, runId: RunId) => Promise<unknown>;
   onWarning: ((warning: TwiggWarning) => void) | undefined;
   maxRetries: number;
 }
@@ -126,7 +121,8 @@ export class ResponseStream implements AsyncIterable<StreamEvent> {
 
   constructor(
     private readonly deps: StreamDeps,
-    private readonly chatId: ChatId,
+    /** The chat, by id or by external id; submit, abort and recovery all address it so. */
+    private readonly chat: ChatRef,
     private readonly body: CreateResponseRequest,
     private readonly options: StreamOptions = {},
   ) {
@@ -176,7 +172,7 @@ export class ResponseStream implements AsyncIterable<StreamEvent> {
       async (runId) => {
         if (this.ended) return;
         try {
-          await this.deps.abortRun(this.chatId, runId);
+          await this.deps.abortRun(this.chat, runId);
         } catch (error) {
           // 409: the turn finished before the abort arrived, so there is nothing to stop.
           if (!(error instanceof ConflictError)) throw error;
@@ -318,7 +314,7 @@ export class ResponseStream implements AsyncIterable<StreamEvent> {
     };
     const request = {
       method: "POST" as const,
-      path: `/api/v1/chats/${encodeURIComponent(this.chatId)}/responses`,
+      path: `${chatPath(this.chat)}/responses`,
       body,
       auth: "required" as const,
       // Safe to repeat: the idempotency key turns a duplicate into a 409 naming the first run.
@@ -327,9 +323,7 @@ export class ResponseStream implements AsyncIterable<StreamEvent> {
     // The run may be named after the signal fires, or only through a 409, so wait for it.
     const onAbort = () => {
       if (options.abortRun)
-        void this.runIdKnown
-          .then((runId) => this.deps.abortRun(this.chatId, runId))
-          .catch(() => {});
+        void this.runIdKnown.then((runId) => this.deps.abortRun(this.chat, runId)).catch(() => {});
     };
     caller?.addEventListener("abort", onAbort, { once: true });
     try {
@@ -399,7 +393,7 @@ export class ResponseStream implements AsyncIterable<StreamEvent> {
     this.resolveRunId(runId);
     const result = await recoverResult(
       this.deps,
-      this.chatId,
+      this.chat,
       runId,
       this.accumulator,
       this.options.recoveryTimeout ?? 600_000,
