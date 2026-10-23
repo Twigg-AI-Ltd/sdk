@@ -78,9 +78,11 @@ def test_returns_none_for_an_empty_204() -> None:
 
 def test_returns_markdown_as_text() -> None:
     twigg, api, _ = setup()
-    api.reply(httpx.Response(200, text="| model |", headers={"content-type": "text/markdown"}))
+    api.reply(
+        httpx.Response(200, text="| model |", headers={"content-type": "text/plain; charset=utf-8"})
+    )
     assert twigg.catalogue.markdown() == "| model |"
-    assert api.last.headers["accept"] == "text/markdown"
+    assert api.last.headers["accept"] == "text/plain"
 
 
 def test_catalogue_names_keep_their_slashes() -> None:

@@ -29,6 +29,13 @@ from ._generated.models import (
     HistoryReasoning,
     HistoryToolCall,
     HistoryToolResult,
+    ImportChatResponse,
+    ImportMessage,
+    ImportPrompt,
+    ImportSkippedResponse,
+    ImportToolCall,
+    ImportToolResult,
+    ImportWarning,
     InstructionResponse,
     ModelUsageGroup,
     NamespacePage,
@@ -54,6 +61,13 @@ from ._generated.models import (
 
 SubmittedPart = SubmittedPrompt | SubmittedToolResult
 """One part of a submission: a prompt or a tool result."""
+
+ImportPart = ImportPrompt | ImportMessage | ImportToolCall | ImportToolResult
+"""One part of a conversation to import. Plain dicts work as well; a tool call's `arguments`
+may also be a string holding a JSON object."""
+
+ImportResult = ImportChatResponse | ImportSkippedResponse
+"""An import's answer: what was stored, or `skipped=True` when the chat already had history."""
 
 UsageGroup = (
     ModelUsageGroup
@@ -102,6 +116,15 @@ __all__ = [
     "HistoryReasoning",
     "HistoryToolCall",
     "HistoryToolResult",
+    "ImportChatResponse",
+    "ImportMessage",
+    "ImportPart",
+    "ImportPrompt",
+    "ImportResult",
+    "ImportSkippedResponse",
+    "ImportToolCall",
+    "ImportToolResult",
+    "ImportWarning",
     "InstructionResponse",
     "InstructionVersion",
     "ModelUsageGroup",

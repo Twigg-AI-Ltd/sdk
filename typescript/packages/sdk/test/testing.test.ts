@@ -90,6 +90,33 @@ describe("MockTwigg", () => {
     ).rejects.toMatchObject({ code: "external_id_namespace_mismatch" });
   });
 
+  it("imports a conversation once, into an empty chat", async () => {
+    const twigg = new MockTwigg().respond(streamBuilder().text("Welcome back").done());
+    const chat = twigg.chatByExternalId("wa:2", { model: "m", chat: { namespace: "wa" } });
+    const result = await chat.importHistory([
+      { type: "prompt", text: "Where is my order?" },
+      { type: "tool_call", tool_use_id: "c1", name: "track", arguments: { id: 7 } },
+      { type: "tool_result", tool_use_id: "c1", tool_name: "track", text: "shipped" },
+      { type: "message", text: "It has shipped." },
+    ]);
+    expect(result).toMatchObject({ created_chat: true, imported_parts: 4, warnings: [] });
+    expect(await chat.importHistory([{ type: "prompt", text: "again" }])).toMatchObject({
+      skipped: true,
+      existing_parts: 4,
+    });
+    await chat.send("Thanks");
+    const kinds: string[] = [];
+    for await (const part of chat.history({ after_ordinal: -1 })) kinds.push(part.part.type);
+    expect(kinds).toEqual(["prompt", "tool_call", "tool_result", "message", "prompt", "message"]);
+    expect(await chat.get()).toMatchObject({ namespace: "wa" });
+    await expect(
+      twigg.chats.importByExternalId("wa:2", {
+        parts: [{ type: "prompt", text: "x" }],
+        chat: { namespace: "other" },
+      }),
+    ).rejects.toMatchObject({ code: "external_id_namespace_mismatch" });
+  });
+
   it("explains an unscripted turn", async () => {
     const twigg = new MockTwigg();
     const chat = await twigg.chats.open();

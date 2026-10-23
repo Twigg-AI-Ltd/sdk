@@ -11,8 +11,8 @@ Client libraries for the [Twigg API](https://twigg.ai/docs).
 You do not need an SDK to use Twigg: the API is plain HTTP and there is no client-side state to
 keep in sync. The SDKs remove the fiddly parts.
 
-Version 0.2.0 of every package needs Twigg API 0.1.3 or later, for chats by external id,
-per-request system prompts and `wait_for_pending_tool_calls`.
+Version 0.3.0 of every package needs Twigg API 0.1.4 or later to import conversations, and 0.1.3
+or later for chats by external id, per-request system prompts and `wait_for_pending_tool_calls`.
 
 ## The contract
 

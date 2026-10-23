@@ -74,6 +74,12 @@ CALLS: dict[str, tuple[Call, Any]] = {
         lambda t: t.chats.history_by_external_id("+447700", after_ordinal=-1, limit=5),
         history_page([]),
     ),
+    "importChatByExternalId": (
+        lambda t: t.chats.import_by_external_id(
+            "+447700", [{"type": "prompt", "text": "Hi"}], chat={"namespace": "acme"}
+        ),
+        {"chat_id": ID, "skipped": True, "existing_parts": 1},
+    ),
     "createResponseByExternalId": (
         lambda t: t.responses.stream_by_external_id(
             "+447700",

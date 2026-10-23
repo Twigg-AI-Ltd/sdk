@@ -13,6 +13,8 @@ import type {
   HistoryPageResponse,
   HistoryPart,
   HistoryQuery,
+  ImportChatRequest,
+  ImportResult,
   ListChatsQuery,
   OpenChatRequest,
 } from "../types.js";
@@ -105,6 +107,30 @@ export class Chats extends Resource {
     options?: RequestOptions,
   ): PagePromise<HistoryPart, HistoryPage> {
     return this.historyAt({ externalId }, query, options);
+  }
+
+  /**
+   * Store an existing conversation as the history of the chat holding `externalId`, creating the
+   * chat from `body.chat` if there is none. Only an empty chat is written to: one that already has
+   * history answers `skipped: true` and nothing is stored or charged, so a retry is safe. The
+   * API repairs the parts into a valid conversation and lists every change in `warnings`.
+   * At most 500 parts; charged per million estimated tokens stored.
+   */
+  importByExternalId(
+    externalId: ExternalChatId,
+    body: ImportChatRequest,
+    options?: RequestOptions,
+  ): Promise<ImportResult> {
+    return this.transport.json(
+      {
+        method: "POST",
+        path: path`/api/v1/chats/external/${externalId}/import`,
+        body,
+        auth: "required",
+        idempotent: true,
+      },
+      options,
+    );
   }
 
   get(chatId: ChatId, options?: RequestOptions): Promise<ChatSummary> {

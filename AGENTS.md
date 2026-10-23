@@ -57,5 +57,5 @@ examples/           one idea per script, same numbering in both languages
 
 ## Releasing
 
-See `RELEASING.md`. In short: push a tag; `ts-v0.2.0` publishes both npm packages and
-`py-v0.2.0` publishes to PyPI. The tag must match every declared version.
+See `RELEASING.md`. In short: push a tag; `ts-v0.3.0` publishes both npm packages and
+`py-v0.3.0` publishes to PyPI. The tag must match every declared version.

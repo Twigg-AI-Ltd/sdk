@@ -15,6 +15,8 @@ import type {
   ExternalChatId,
   HistoryPart,
   HistoryQuery,
+  ImportPart,
+  ImportResult,
   OpenChatRequest,
   RunId,
 } from "./types.js";
@@ -151,6 +153,19 @@ export class ExternalChat extends ChatHandle {
 
   protected get ref(): ChatRef {
     return { externalId: this.externalId };
+  }
+
+  /**
+   * Store an existing conversation as this chat's history, creating the chat from `defaults.chat`
+   * if no chat holds the id yet; see `chats.importByExternalId`. A chat that already has history
+   * answers `skipped: true` and is left as it was.
+   */
+  importHistory(parts: ImportPart[], options?: RequestOptions): Promise<ImportResult> {
+    return this.chats.importByExternalId(
+      this.externalId,
+      { parts, ...(this.defaults.chat ? { chat: this.defaults.chat } : {}) },
+      options,
+    );
   }
 }
 

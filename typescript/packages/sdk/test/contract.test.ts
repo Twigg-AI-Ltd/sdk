@@ -45,6 +45,13 @@ const calls: Record<string, { call: (t: Twigg) => Promise<unknown>; reply?: unkn
     call: (t) => t.chats.historyByExternalId("+447700", { after_ordinal: -1, limit: 5 }).then(),
     reply: historyPage,
   },
+  importChatByExternalId: {
+    call: (t) =>
+      t.chats.importByExternalId("+447700", {
+        parts: [{ type: "prompt", text: "Hi" }],
+        chat: { namespace: "acme" },
+      }),
+  },
   createResponseByExternalId: {
     call: (t) =>
       t.responses

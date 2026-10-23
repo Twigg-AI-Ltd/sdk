@@ -8,7 +8,13 @@ import pytest
 
 from twigg import media, to_parts
 from twigg._generated.models import MediaCapabilities
-from twigg.types import CatalogueModel, HistoryPart
+from twigg.types import (
+    CatalogueModel,
+    HistoryPart,
+    ImportChatResponse,
+    ImportPrompt,
+    ImportSkippedResponse,
+)
 
 from .helpers import CHAT, RUN, json_response, setup, sse_response, text_turn
 
@@ -70,6 +76,39 @@ def test_opens_a_chat_by_external_id_and_sends_by_its_id() -> None:
     assert api.last.url.path == f"/api/v1/chats/{CHAT}/responses"
     assert api.body()["system"] == "Reply in Welsh."
     assert api.body()["wait_for_pending_tool_calls"] == 30
+
+
+def test_imports_a_conversation_by_external_id() -> None:
+    twigg, api, _ = setup()
+    stored = {
+        "chat_id": CHAT,
+        "created_chat": True,
+        "imported_parts": 2,
+        "dropped_parts": 0,
+        "closed_tool_calls": [],
+        "estimated_tokens": 12,
+        "cost": "0.000012",
+        "cost_currency": "USD",
+        "warnings": [{"code": "tool_call_closed", "message": "closed", "part_index": 1}],
+    }
+    api.reply(
+        json_response(stored, 201),
+        json_response({"chat_id": CHAT, "skipped": True, "existing_parts": 2}),
+    )
+    chat = twigg.chat_by_external_id("+447700", model="m", chat={"namespace": "wa"})
+    call = {"type": "tool_call", "tool_use_id": "c1", "name": "lookup", "arguments": '{"q":"x"}'}
+    first = chat.import_history([ImportPrompt(type="prompt", text="Hi"), call])
+    assert api.last.method == "POST"
+    assert api.last.url.raw_path == b"/api/v1/chats/external/%2B447700/import"
+    assert api.body() == {
+        "parts": [{"type": "prompt", "text": "Hi"}, call],
+        "chat": {"namespace": "wa"},
+    }
+    assert isinstance(first, ImportChatResponse)
+    assert first.created_chat and first.warnings[0].code == "tool_call_closed"
+    again = twigg.chats.import_by_external_id("+447700", [call])
+    assert "chat" not in api.body()
+    assert isinstance(again, ImportSkippedResponse) and again.existing_parts == 2
 
 
 def test_open_by_external_id_sends_namespace_only_when_given() -> None:

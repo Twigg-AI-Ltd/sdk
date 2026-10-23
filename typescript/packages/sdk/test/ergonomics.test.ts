@@ -54,6 +54,37 @@ describe("chat handles", () => {
     });
   });
 
+  it("imports a conversation into a chat by external id, creating it from the handle's chat", async () => {
+    const { twigg, api } = setup();
+    const stored = {
+      chat_id: ids.chat,
+      created_chat: true,
+      imported_parts: 2,
+      dropped_parts: 0,
+      closed_tool_calls: [],
+      estimated_tokens: 12,
+      cost: "0.000012",
+      cost_currency: "USD",
+      warnings: [],
+    };
+    api.reply(json(stored, 201), json({ chat_id: ids.chat, skipped: true, existing_parts: 2 }));
+    const chat = twigg.chatByExternalId("+447700", { model: "m", chat: { namespace: "wa" } });
+    const parts = [
+      { type: "prompt", text: "Hi" },
+      { type: "tool_call", tool_use_id: "c1", name: "lookup", arguments: '{"q":"x"}' },
+    ] as const;
+    const first = await chat.importHistory([...parts]);
+    expect(api.last).toMatchObject({
+      method: "POST",
+      body: { parts, chat: { namespace: "wa" } },
+    });
+    expect(api.last.url.pathname).toBe("/api/v1/chats/external/%2B447700/import");
+    expect(first).toEqual(stored);
+    const again = await twigg.chats.importByExternalId("+447700", { parts: [...parts] });
+    expect(api.last.body).not.toHaveProperty("chat");
+    expect("skipped" in again && again.skipped).toBe(true);
+  });
+
   it("does not offer the non-streaming or by-external-id request fields", () => {
     const { twigg } = setup();
     const chat = twigg.chat(ids.chat);

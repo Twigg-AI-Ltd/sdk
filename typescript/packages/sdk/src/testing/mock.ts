@@ -8,6 +8,7 @@ import type {
   CreateResponseRequest,
   HistoryBody,
   HistoryPart,
+  ImportChatRequest,
   OpenChatRequest,
   ResponseEvent,
   RunInspection,
@@ -140,6 +141,8 @@ export class MockServer {
   ): Promise<Response> {
     const [, , , , externalId = "", sub] = s;
     const held = [...this.chats.values()].find((c) => c.external_id === externalId);
+    if (method === "POST" && sub === "import")
+      return Promise.resolve(this.importChat(externalId, held, body as ImportChatRequest));
     // Opening, and a turn's submission, create the chat on first use.
     const open =
       method === "PUT" && !sub
@@ -159,6 +162,60 @@ export class MockServer {
       );
     if (method === "PUT" && !sub) return Promise.resolve(json(held));
     return this.route(method, ["api", "v1", "chats", held.id, ...(sub ? [sub] : [])], query, body);
+  }
+
+  /**
+   * Store the parts as the chat's history, creating the chat if none holds the id. The parts are
+   * stored as sent: the mock does not repair them the way the API does, so `warnings` is empty.
+   */
+  private importChat(
+    externalId: string,
+    held: StoredChat | undefined,
+    request: ImportChatRequest,
+  ): Response {
+    const open = request.chat ?? {};
+    if (held && "namespace" in open && (open.namespace ?? null) !== held.namespace)
+      return error(409, "external_id_namespace_mismatch", "the chat has a different namespace");
+    const chat = held ?? this.createChat({ ...open, external_id: externalId });
+    const existing = this.chatParts(chat.id).length;
+    if (existing > 0) return json({ chat_id: chat.id, skipped: true, existing_parts: existing });
+    for (const part of request.parts) {
+      if (part.type === "prompt") this.append(chat.id, "user", { type: "prompt", text: part.text });
+      else if (part.type === "message")
+        this.append(chat.id, "assistant", { type: "message", text: part.text });
+      else if (part.type === "tool_call")
+        this.append(chat.id, "assistant", {
+          type: "tool_call",
+          tool_use_id: part.tool_use_id,
+          tool_name: part.name,
+          arguments:
+            typeof part.arguments === "string" ? part.arguments : JSON.stringify(part.arguments),
+        });
+      else
+        this.append(chat.id, "user", {
+          type: "tool_result",
+          tool_use_id: part.tool_use_id,
+          tool_name: part.tool_name,
+          text: part.text ?? "",
+          is_error: part.is_error ?? false,
+          trust: "customer_data",
+          tombstone_reason: null,
+        });
+    }
+    return json(
+      {
+        chat_id: chat.id,
+        created_chat: !held,
+        imported_parts: request.parts.length,
+        dropped_parts: 0,
+        closed_tool_calls: [],
+        estimated_tokens: 0,
+        cost: "0",
+        cost_currency: "USD",
+        warnings: [],
+      },
+      201,
+    );
   }
 
   private createChat(request: CreateChatRequest): StoredChat {

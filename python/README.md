@@ -110,6 +110,36 @@ When tools run somewhere else, as in an automation workflow, a second message ca
 tool is still running. Pass `wait_for_pending_tool_calls=60` and that message is refused with 409
 `tool_calls_pending` and a `Retry-After` header, instead of closing the open tool calls.
 
+### Bringing a conversation over
+
+To move a conversation that started elsewhere, import it as the chat's history before its first
+message. No model is called; the chat's first turn compacts the history if it needs to.
+
+```python
+chat = twigg.chat_by_external_id(f"whatsapp:{sender}", chat={"namespace": "support"})
+imported = chat.import_history(
+    [
+        {"type": "prompt", "text": "Where is my order?"},
+        {"type": "tool_call", "tool_use_id": "c1", "name": "track", "arguments": {"order": 7}},
+        {"type": "tool_result", "tool_use_id": "c1", "tool_name": "track", "text": "Shipped"},
+        {"type": "message", "text": "It shipped this morning."},
+    ]
+)
+if isinstance(imported, ImportSkippedResponse):  # from twigg.types
+    print(f"already had {imported.existing_parts} parts")
+else:
+    for warning in imported.warnings:
+        print(warning.code, warning.message)
+```
+
+Only an empty chat is written to: a chat with history answers `skipped=True` and nothing is
+stored or charged, so retrying is safe. The API repairs the parts into a valid conversation
+(results that answer no call are dropped, calls with no result are closed, tool names are made
+provider-safe) and lists every change in `warnings`. `arguments` may also be a string holding a
+JSON object. At most 500 parts per import, charged per million estimated tokens stored;
+`twigg.chats.import_by_external_id(id, parts, chat=...)` does the same without a handle. A turn
+running on the chat makes it 409 `chat_busy`.
+
 ## Streaming
 
 ```python

@@ -74,6 +74,7 @@
         "enum": [
           "usage",
           "compaction",
+          "import",
           "topup",
           "refund",
           "adjustment",
@@ -1841,6 +1842,306 @@
       "IdempotencyKey": {
         "maxLength": 128,
         "minLength": 1,
+        "type": "string"
+      },
+      "ImportChatRequest": {
+        "additionalProperties": false,
+        "description": "Body for [`import`].",
+        "properties": {
+          "chat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OpenChatRequest",
+                "description": "Describes the chat to create when none holds this external id. Ignored\non an existing chat, except that a differing namespace is refused, as on\nthe responses route."
+              }
+            ]
+          },
+          "parts": {
+            "description": "The conversation, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/ImportPart"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "parts"
+        ],
+        "type": "object"
+      },
+      "ImportChatResponse": {
+        "description": "201: the conversation was stored.",
+        "properties": {
+          "chat_id": {
+            "$ref": "#/components/schemas/ChatId"
+          },
+          "closed_tool_calls": {
+            "description": "Tool calls that had no result and were closed as abandoned, by your ids.",
+            "items": {
+              "$ref": "#/components/schemas/ToolUseId"
+            },
+            "type": "array"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/Money",
+            "description": "The charge for this import, in USD."
+          },
+          "cost_currency": {
+            "type": "string"
+          },
+          "created_chat": {
+            "type": "boolean"
+          },
+          "dropped_parts": {
+            "description": "How many were dropped; each has a warning saying why.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "estimated_tokens": {
+            "description": "Estimated tokens of everything stored, which the charge is priced on.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "imported_parts": {
+            "description": "How many of the parts you sent were stored.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "warnings": {
+            "description": "Everything the import changed from what you sent.",
+            "items": {
+              "$ref": "#/components/schemas/ImportWarning"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "chat_id",
+          "created_chat",
+          "imported_parts",
+          "dropped_parts",
+          "closed_tool_calls",
+          "estimated_tokens",
+          "cost",
+          "cost_currency",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "ImportMessage": {
+        "description": "Something the assistant said.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "message"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ImportPart": {
+        "description": "One part of the conversation being imported.",
+        "discriminator": {
+          "mapping": {
+            "message": "#/components/schemas/ImportMessage",
+            "prompt": "#/components/schemas/ImportPrompt",
+            "tool_call": "#/components/schemas/ImportToolCall",
+            "tool_result": "#/components/schemas/ImportToolResult"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ImportPrompt"
+          },
+          {
+            "$ref": "#/components/schemas/ImportMessage"
+          },
+          {
+            "$ref": "#/components/schemas/ImportToolCall"
+          },
+          {
+            "$ref": "#/components/schemas/ImportToolResult"
+          }
+        ]
+      },
+      "ImportPrompt": {
+        "description": "Something the user said.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "prompt"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ImportSkippedResponse": {
+        "description": "200: the chat already had history, so nothing was stored or charged.",
+        "properties": {
+          "chat_id": {
+            "$ref": "#/components/schemas/ChatId"
+          },
+          "existing_parts": {
+            "description": "How many parts the chat already had.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "skipped": {
+            "description": "Always true.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "chat_id",
+          "skipped",
+          "existing_parts"
+        ],
+        "type": "object"
+      },
+      "ImportToolCall": {
+        "description": "A tool the assistant called.",
+        "properties": {
+          "arguments": {
+            "description": "A JSON object, or a string holding one.",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "tool_use_id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "tool_call"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_use_id",
+          "name",
+          "arguments",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ImportToolResult": {
+        "description": "What a tool returned.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_error": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "tool_use_id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "tool_result"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_use_id",
+          "tool_name",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ImportWarning": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ImportWarningCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "part_index": {
+            "description": "The position in the request's `parts` this is about, when it is about\none.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ImportWarningCode": {
+        "description": "Why the plan changed something the caller sent.",
+        "enum": [
+          "empty_part_dropped",
+          "unmatched_tool_result",
+          "duplicate_tool_result",
+          "empty_tool_result_filled",
+          "duplicate_tool_call",
+          "tool_call_closed",
+          "tool_name_rewritten",
+          "tool_results_moved_first",
+          "leading_assistant"
+        ],
         "type": "string"
       },
       "InstructionResponse": {
@@ -5208,6 +5509,155 @@
           }
         ],
         "summary": "Read chat history by external id",
+        "tags": [
+          "customer-api",
+          "Chats"
+        ]
+      }
+    },
+    "/api/v1/chats/external/{external_id}/import": {
+      "post": {
+        "description": "Store an existing conversation as the history of the chat holding this external id, creating the chat if there is none. Only an empty chat is written to: a chat that already has history returns 200 with skipped: true and nothing is stored or charged, which makes retries and races safe without an idempotency key. The history is repaired into a valid conversation before it is stored: tool results that answer no open call are dropped, tool calls with no result are closed as abandoned, prompts in a turn are moved after its tool results, tool ids are replaced and tool names made provider-safe. Every change is listed in warnings. No model is called; the chat's first response compacts the history if it needs to. Charged per million estimated tokens stored. At most 500 parts.",
+        "operationId": "importChatByExternalId",
+        "parameters": [
+          {
+            "description": "Your own identifier for the chat",
+            "in": "path",
+            "name": "external_id",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExternalChatId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSkippedResponse"
+                }
+              }
+            },
+            "description": "The chat already had history; nothing was stored"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportChatResponse"
+                }
+              }
+            },
+            "description": "Imported"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "The balance does not cover the import"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "chat_busy: a turn is running on this chat; retry after Retry-After seconds. external_id_namespace_mismatch: the chat exists in another namespace.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying. Sent with chat_busy.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Import a conversation by external id",
         "tags": [
           "customer-api",
           "Chats"
@@ -8963,7 +9413,7 @@
         "responses": {
           "200": {
             "content": {
-              "text/markdown": {
+              "text/plain": {
                 "schema": {
                   "type": "string"
                 }

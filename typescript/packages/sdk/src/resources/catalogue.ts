@@ -27,7 +27,7 @@ export class CatalogueResource extends Resource {
   markdown(options?: RequestOptions): Promise<string> {
     return this.transport.text(
       { method: "GET", path: "/v1/catalogue/models.md", auth: "optional", idempotent: true },
-      { ...options, headers: { Accept: "text/markdown", ...options?.headers } },
+      { ...options, headers: { Accept: "text/plain", ...options?.headers } },
     );
   }
 }

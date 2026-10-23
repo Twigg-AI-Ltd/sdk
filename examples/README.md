@@ -34,6 +34,7 @@ pip install twigg && python python/02_send.py
 | 16 | The tool loop by hand: pending calls and `tool_result` parts |
 | 17 | TypeScript: forward a stream to a browser |
 | 18 | A chat addressed by your own id (a phone number): created by its first message |
+| 19 | Import a conversation from elsewhere into a chat by your own id, then continue it |
 
 `cli/` is configuration as code with `@twigg/cli`: `bash cli/run.sh` validates, plans, applies,
 re-plans, resolves and then withdraws `cli/twigg.config.yaml` in the `examples/cli` namespace.

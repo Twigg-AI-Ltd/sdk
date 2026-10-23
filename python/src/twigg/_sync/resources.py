@@ -7,7 +7,7 @@ import builtins
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from uuid import UUID
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -28,6 +28,8 @@ from .._generated.models import (
     Discovery,
     HistoryPageResponse,
     HistoryPart,
+    ImportChatResponse,
+    ImportSkippedResponse,
     InstructionResponse,
     NamespacePage,
     PublicPlatformUpdate,
@@ -240,6 +242,35 @@ class Chats(Resource):
         )
         return self._history_at(ExternalRef(external_id), query, options)
 
+    def import_by_external_id(
+        self,
+        external_id: str,
+        parts: Sequence[Mapping[str, Any] | BaseModel],
+        *,
+        chat: Mapping[str, Any] | None = None,
+        options: RequestOptions | None = None,
+    ) -> ImportChatResponse | ImportSkippedResponse:
+        """Store an existing conversation as the history of the chat holding `external_id`,
+        creating the chat from `chat` if there is none. Only an empty chat is written to: one
+        that already has history answers `skipped=True` and nothing is stored or charged, so a
+        retry is safe. The API repairs the parts into a valid conversation and lists every
+        change in `warnings`. At most 500 parts; charged per million estimated tokens stored."""
+        body: dict[str, Any] = {
+            "parts": [
+                part.model_dump(mode="json", exclude_none=True)
+                if isinstance(part, BaseModel)
+                else dict(part)
+                for part in parts
+            ]
+        }
+        if chat is not None:
+            body["chat"] = dict(chat)
+        path = f"{chat_path(ExternalRef(external_id))}/import"
+        data = self._post(path, body, options, idempotent=True)
+        if isinstance(data, dict) and cast("dict[str, Any]", data).get("skipped"):
+            return _parse(ImportSkippedResponse, data)
+        return _parse(ImportChatResponse, data)
+
     def get(self, chat_id: Id, *, options: RequestOptions | None = None) -> ChatSummary:
         return self._get_at(chat_id, options)
 
@@ -398,7 +429,7 @@ class CatalogueResource(Resource):
     def markdown(self, *, options: RequestOptions | None = None) -> str:
         """The catalogue as a Markdown table, for prompts and docs."""
         return self._transport.text(
-            ApiRequest("GET", "/v1/catalogue/models.md", auth="optional", accept="text/markdown"),
+            ApiRequest("GET", "/v1/catalogue/models.md", auth="optional", accept="text/plain"),
             options,
         )
 

@@ -43,6 +43,25 @@ export type HistoryToolCall = Schemas["HistoryToolCall"];
 export type HistoryMedia = Schemas["HistoryMedia"];
 export type UserMetadata = Schemas["UserMetadata"];
 
+// Importing a conversation
+export type ImportPrompt = Schemas["ImportPrompt"];
+export type ImportMessage = Schemas["ImportMessage"];
+/** The API also takes `arguments` as a string holding a JSON object, as many histories store it. */
+export type ImportToolCall = Omit<Schemas["ImportToolCall"], "arguments"> & {
+  arguments: Record<string, unknown> | string;
+};
+export type ImportToolResult = Schemas["ImportToolResult"];
+export type ImportPart = ImportPrompt | ImportMessage | ImportToolCall | ImportToolResult;
+export type ImportChatRequest = Omit<Schemas["ImportChatRequest"], "parts"> & {
+  parts: ImportPart[];
+};
+export type ImportChatResponse = Schemas["ImportChatResponse"];
+export type ImportSkippedResponse = Schemas["ImportSkippedResponse"];
+/** An import's answer: what was stored, or `skipped: true` when the chat already had history. */
+export type ImportResult = ImportChatResponse | ImportSkippedResponse;
+export type ImportWarning = Schemas["ImportWarning"];
+export type ImportWarningCode = Schemas["ImportWarningCode"];
+
 // Responses
 export type CreateResponseRequest = Schemas["CreateResponseRequest"];
 export type SubmittedPart = Schemas["SubmittedPart"];

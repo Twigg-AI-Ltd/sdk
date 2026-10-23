@@ -269,7 +269,7 @@ describe("commands and exit codes", () => {
     const api = fakeApi();
     const dir = await project();
     expect((await cli(api, dir, ["--help"])).code).toBe(0);
-    expect((await cli(api, dir, ["--version"])).stdout).toBe("0.2.0");
+    expect((await cli(api, dir, ["--version"])).stdout).toBe("0.3.0");
     expect((await cli(api, dir, ["config", "frobnicate"])).code).toBe(1);
     expect((await cli(api, dir, ["config", "plan", "--bogus"])).code).toBe(1);
   });

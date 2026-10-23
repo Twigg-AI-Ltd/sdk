@@ -76,8 +76,10 @@ describe("requests", () => {
 
   it("returns Markdown as text", async () => {
     const { twigg, api } = setup();
-    api.reply(new Response("| model |", { headers: { "content-type": "text/markdown" } }));
+    api.reply(
+      new Response("| model |", { headers: { "content-type": "text/plain; charset=utf-8" } }),
+    );
     await expect(twigg.catalogue.markdown()).resolves.toBe("| model |");
-    expect(api.last.headers.accept).toBe("text/markdown");
+    expect(api.last.headers.accept).toBe("text/plain");
   });
 });

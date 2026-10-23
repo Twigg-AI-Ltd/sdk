@@ -13,8 +13,8 @@ repository's workflow directly (trusted publishing).
 2. Commit, then tag and push:
 
    ```bash
-   git tag ts-v0.2.0 && git push origin ts-v0.2.0   # @twigg/sdk and @twigg/cli
-   git tag py-v0.2.0 && git push origin py-v0.2.0   # twigg on PyPI
+   git tag ts-v0.3.0 && git push origin ts-v0.3.0   # @twigg/sdk and @twigg/cli
+   git tag py-v0.3.0 && git push origin py-v0.3.0   # twigg on PyPI
    ```
 
 The workflow runs every check, refuses a tag that does not match the declared versions, and skips

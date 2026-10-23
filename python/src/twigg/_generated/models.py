@@ -74,6 +74,15 @@ class UnknownHistoryBody(BaseModel):
     type: str
 
 
+class UnknownImportPart(BaseModel):
+    """A ImportPart variant this SDK version does not know. Every field the API sent is kept."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    type: str
+
+
 class UnknownResponseContent(BaseModel):
     """A ResponseContent variant this SDK version does not know. Every field the API sent is kept."""
 
@@ -219,7 +228,10 @@ class EntryTypeUsageGroup(BaseModel):
     )
     dimension: Literal["entry_type"]
     entry_type: (
-        Literal["usage", "compaction", "topup", "refund", "adjustment", "promotional_credit"] | str
+        Literal[
+            "usage", "compaction", "import", "topup", "refund", "adjustment", "promotional_credit"
+        ]
+        | str
     )
 
 
@@ -348,6 +360,85 @@ class HistoryReasoning(BaseModel):
 IdempotencyKey = TypeAliasType(
     "IdempotencyKey", Annotated[str, Field(max_length=128, min_length=1)]
 )
+
+
+class ImportMessage(BaseModel):
+    """
+    Something the assistant said.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created_at: AwareDatetime | None = None
+    text: str
+    type: Literal["message"]
+
+
+class ImportPrompt(BaseModel):
+    """
+    Something the user said.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created_at: AwareDatetime | None = None
+    text: str
+    type: Literal["prompt"]
+
+
+class ImportSkippedResponse(BaseModel):
+    """
+    200: the chat already had history, so nothing was stored or charged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    chat_id: UUID
+    existing_parts: int
+    """
+    How many parts the chat already had.
+    """
+    skipped: bool
+    """
+    Always true.
+    """
+
+
+class ImportToolCall(BaseModel):
+    """
+    A tool the assistant called.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    arguments: dict[str, Any]
+    """
+    A JSON object, or a string holding one.
+    """
+    created_at: AwareDatetime | None = None
+    name: str
+    tool_use_id: str
+    type: Literal["tool_call"]
+
+
+class ImportToolResult(BaseModel):
+    """
+    What a tool returned.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created_at: AwareDatetime | None = None
+    is_error: bool | None = None
+    text: str | None = None
+    tool_name: str
+    tool_use_id: str
+    type: Literal["tool_result"]
 
 
 class ModelUsageGroup(BaseModel):
@@ -645,7 +736,10 @@ class RunUsageGroup(BaseModel):
     api_key_id: UUID | None = None
     dimension: Literal["run"]
     entry_type: (
-        Literal["usage", "compaction", "topup", "refund", "adjustment", "promotional_credit"] | str
+        Literal[
+            "usage", "compaction", "import", "topup", "refund", "adjustment", "promotional_credit"
+        ]
+        | str
     )
     last_occurred_at: AwareDatetime | None = None
     """
@@ -1249,6 +1343,35 @@ class HistoryToolResult(BaseModel):
     tool_use_id: str
     trust: Literal["trusted", "customer_data", "untrusted"] | str
     type: Literal["tool_result"]
+
+
+class ImportWarning(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: (
+        Literal[
+            "empty_part_dropped",
+            "unmatched_tool_result",
+            "duplicate_tool_result",
+            "empty_tool_result_filled",
+            "duplicate_tool_call",
+            "tool_call_closed",
+            "tool_name_rewritten",
+            "tool_results_moved_first",
+            "leading_assistant",
+        ]
+        | str
+    )
+    """
+    Why the plan changed something the caller sent.
+    """
+    message: str
+    part_index: Annotated[int | None, Field(ge=0)] = None
+    """
+    The position in the request's `parts` this is about, when it is about
+    one.
+    """
 
 
 class InstructionResponse(ConfigVersionResponse):
@@ -1910,6 +2033,78 @@ class HistoryPart(BaseModel):
     client would otherwise repeat.
     """
     user_metadata: Any
+
+
+class ImportChatRequest(BaseModel):
+    """
+    Body for [`import`].
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    chat: OpenChatRequest | None = None
+    parts: Annotated[
+        list[
+            Annotated[
+                Annotated[ImportPrompt, Tag("prompt")]
+                | Annotated[ImportMessage, Tag("message")]
+                | Annotated[ImportToolCall, Tag("tool_call")]
+                | Annotated[ImportToolResult, Tag("tool_result")]
+                | Annotated[UnknownImportPart, Tag("__unknown__")],
+                _tagged(
+                    "type",
+                    (
+                        "prompt",
+                        "message",
+                        "tool_call",
+                        "tool_result",
+                    ),
+                ),
+            ]
+        ],
+        Field(max_length=500, min_length=1),
+    ]
+    """
+    The conversation, oldest first.
+    """
+
+
+class ImportChatResponse(BaseModel):
+    """
+    201: the conversation was stored.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    chat_id: UUID
+    closed_tool_calls: list[str]
+    """
+    Tool calls that had no result and were closed as abandoned, by your ids.
+    """
+    cost: str
+    """
+    The charge for this import, in USD.
+    """
+    cost_currency: str
+    created_chat: bool
+    dropped_parts: Annotated[int, Field(ge=0)]
+    """
+    How many were dropped; each has a warning saying why.
+    """
+    estimated_tokens: Annotated[int, Field(ge=0)]
+    """
+    Estimated tokens of everything stored, which the charge is priced on.
+    """
+    imported_parts: Annotated[int, Field(ge=0)]
+    """
+    How many of the parts you sent were stored.
+    """
+    warnings: list[ImportWarning]
+    """
+    Everything the import changed from what you sent.
+    """
 
 
 class MediaCapabilities(BaseModel):

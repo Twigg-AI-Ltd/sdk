@@ -3,12 +3,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
+from pydantic import BaseModel
 from typing_extensions import Unpack
 
-from .._generated.models import AbortAccepted, ChatCreated, ChatSummary, HistoryPart
+from .._generated.models import (
+    AbortAccepted,
+    ChatCreated,
+    ChatSummary,
+    HistoryPart,
+    ImportChatResponse,
+    ImportSkippedResponse,
+)
 from .._shared.input import MessageInput, to_parts
 from .._shared.options import RetryFields, ToolLoopFields, TurnFields, pick
 from .._shared.request import RequestOptions, compact
@@ -130,6 +138,19 @@ class ExternalChat(_AsyncChatHandle):
         #: How to create the chat if no chat holds the id yet. On an existing chat it is
         #: ignored, except that a differing `namespace` is refused with 409.
         self._create = chat
+
+    def import_history(
+        self,
+        parts: Sequence[Mapping[str, Any] | BaseModel],
+        *,
+        options: RequestOptions | None = None,
+    ) -> ImportChatResponse | ImportSkippedResponse:
+        """Store an existing conversation as this chat's history, creating the chat from the
+        handle's `chat` if no chat holds the id yet; see `chats.import_by_external_id`. A chat
+        that already has history answers `skipped=True` and is left as it was."""
+        return self._chats.import_by_external_id(
+            self.external_id, parts, chat=self._create, options=options
+        )
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self.external_id!r})"

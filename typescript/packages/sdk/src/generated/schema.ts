@@ -113,6 +113,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/external/{external_id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a conversation by external id
+         * @description Store an existing conversation as the history of the chat holding this external id, creating the chat if there is none. Only an empty chat is written to: a chat that already has history returns 200 with skipped: true and nothing is stored or charged, which makes retries and races safe without an idempotency key. The history is repaired into a valid conversation before it is stored: tool results that answer no open call are dropped, tool calls with no result are closed as abandoned, prompts in a turn are moved after its tool results, tool ids are replaced and tool names made provider-safe. Every change is listed in warnings. No model is called; the chat's first response compacts the history if it needs to. Charged per million estimated tokens stored. At most 500 parts.
+         */
+        post: operations["importChatByExternalId"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/external/{external_id}/responses": {
         parameters: {
             query?: never;
@@ -752,7 +772,7 @@ export interface components {
             version: string;
         };
         /** @enum {string} */
-        BalanceEntryType: "usage" | "compaction" | "topup" | "refund" | "adjustment" | "promotional_credit";
+        BalanceEntryType: "usage" | "compaction" | "import" | "topup" | "refund" | "adjustment" | "promotional_credit";
         /** @description Per-million rates as the customer pays them. */
         BilledRates: {
             cache_read?: null | components["schemas"]["RatePerMillion"];
@@ -1381,6 +1401,110 @@ export interface components {
             type: "tool_result";
         };
         IdempotencyKey: string;
+        /** @description Body for [`import`]. */
+        ImportChatRequest: {
+            chat?: null | components["schemas"]["OpenChatRequest"];
+            /** @description The conversation, oldest first. */
+            parts: components["schemas"]["ImportPart"][];
+        };
+        /** @description 201: the conversation was stored. */
+        ImportChatResponse: {
+            chat_id: components["schemas"]["ChatId"];
+            /** @description Tool calls that had no result and were closed as abandoned, by your ids. */
+            closed_tool_calls: components["schemas"]["ToolUseId"][];
+            /** @description The charge for this import, in USD. */
+            cost: components["schemas"]["Money"];
+            cost_currency: string;
+            created_chat: boolean;
+            /** @description How many were dropped; each has a warning saying why. */
+            dropped_parts: number;
+            /**
+             * Format: int32
+             * @description Estimated tokens of everything stored, which the charge is priced on.
+             */
+            estimated_tokens: number;
+            /** @description How many of the parts you sent were stored. */
+            imported_parts: number;
+            /** @description Everything the import changed from what you sent. */
+            warnings: components["schemas"]["ImportWarning"][];
+        };
+        /** @description Something the assistant said. */
+        ImportMessage: {
+            /** Format: date-time */
+            created_at?: string | null;
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "message";
+        };
+        /** @description One part of the conversation being imported. */
+        ImportPart: components["schemas"]["ImportPrompt"] | components["schemas"]["ImportMessage"] | components["schemas"]["ImportToolCall"] | components["schemas"]["ImportToolResult"];
+        /** @description Something the user said. */
+        ImportPrompt: {
+            /** Format: date-time */
+            created_at?: string | null;
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "prompt";
+        };
+        /** @description 200: the chat already had history, so nothing was stored or charged. */
+        ImportSkippedResponse: {
+            chat_id: components["schemas"]["ChatId"];
+            /**
+             * Format: int64
+             * @description How many parts the chat already had.
+             */
+            existing_parts: number;
+            /** @description Always true. */
+            skipped: boolean;
+        };
+        /** @description A tool the assistant called. */
+        ImportToolCall: {
+            /** @description A JSON object, or a string holding one. */
+            arguments: Record<string, unknown>;
+            /** Format: date-time */
+            created_at?: string | null;
+            name: string;
+            tool_use_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "tool_call";
+        };
+        /** @description What a tool returned. */
+        ImportToolResult: {
+            /** Format: date-time */
+            created_at?: string | null;
+            is_error?: boolean;
+            text?: string;
+            tool_name: string;
+            tool_use_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "tool_result";
+        };
+        ImportWarning: {
+            code: components["schemas"]["ImportWarningCode"];
+            message: string;
+            /**
+             * @description The position in the request's `parts` this is about, when it is about
+             *     one.
+             */
+            part_index?: number | null;
+        };
+        /**
+         * @description Why the plan changed something the caller sent.
+         * @enum {string}
+         */
+        ImportWarningCode: "empty_part_dropped" | "unmatched_tool_result" | "duplicate_tool_result" | "empty_tool_result_filled" | "duplicate_tool_call" | "tool_call_closed" | "tool_name_rewritten" | "tool_results_moved_first" | "leading_assistant";
         /** @description An instruction version with its body — what the editor loads. */
         InstructionResponse: components["schemas"]["ConfigVersionResponse"] & {
             body: string;
@@ -3035,6 +3159,110 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    importChatByExternalId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportChatRequest"];
+            };
+        };
+        responses: {
+            /** @description The chat already had history; nothing was stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSkippedResponse"];
+                };
+            };
+            /** @description Imported */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportChatResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The balance does not cover the import */
+            402: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description chat_busy: a turn is running on this chat; retry after Retry-After seconds. external_id_namespace_mismatch: the chat exists in another namespace. */
+            409: {
+                headers: {
+                    /** @description Seconds to wait before retrying. Sent with chat_busy. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5752,7 +5980,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/markdown": string;
+                    "text/plain": string;
                 };
             };
             404: {
