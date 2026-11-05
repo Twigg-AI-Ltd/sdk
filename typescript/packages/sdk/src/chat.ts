@@ -13,12 +13,16 @@ import type {
   ChatId,
   ChatSummary,
   ExternalChatId,
+  GetChatQuery,
   HistoryPart,
   HistoryQuery,
   ImportPart,
   ImportResult,
+  ListRunsQuery,
   OpenChatRequest,
   RunId,
+  RunSummary,
+  UpdateChatRequest,
 } from "./types.js";
 
 /** Request fields a chat handle fills in when a call leaves them out. */
@@ -90,8 +94,19 @@ abstract class ChatHandle {
     return this.chats.historyAt(this.ref, query, options);
   }
 
-  get(options?: RequestOptions): Promise<ChatSummary> {
-    return this.chats.getAt(this.ref, options);
+  /** The chat's record. `{ include: "usage" }` adds its cost and token totals as `usage`. */
+  get(query?: GetChatQuery, options?: RequestOptions): Promise<ChatSummary> {
+    return this.chats.getAt(this.ref, query, options);
+  }
+
+  /** Change the chat's title, description or user_metadata; see `chats.update`. */
+  update(body: UpdateChatRequest, options?: RequestOptions): Promise<ChatSummary> {
+    return this.chats.updateAt(this.ref, body, options);
+  }
+
+  /** The chat's runs, newest first; see `chats.runs`. */
+  runs(query?: ListRunsQuery, options?: RequestOptions): PagePromise<RunSummary> {
+    return this.chats.runsAt(this.ref, query, options);
   }
 
   delete(options?: RequestOptions): Promise<void> {

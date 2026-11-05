@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import builtins
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from uuid import UUID
@@ -19,7 +19,9 @@ from .._generated.models import (
     CatalogueModelResponse,
     ChatCreated,
     ChatPage,
+    ChatsDeleted,
     ChatSummary,
+    ConfigDeletion,
     ConfigVersionResponse,
     ContextBudgetResponse,
     DeactivateResponse,
@@ -36,12 +38,14 @@ from .._generated.models import (
     ResolvedConfig,
     RetentionPolicyResponse,
     RunInspection,
+    RunPage,
+    RunSummary,
     ToolSchemaResponse,
     UsageReport,
 )
 from .._shared.options import TurnFields
 from .._shared.recovery import is_finished
-from .._shared.request import ApiRequest, RequestOptions, compact, segment
+from .._shared.request import ApiRequest, RequestOptions, compact, dump, segment
 from ..errors import APITimeoutError, invalid_response
 from .pagination import AsyncHistoryPage, AsyncPage
 from .transport import AsyncTransport
@@ -133,10 +137,50 @@ class AsyncResource:
     async def _put(self, path: str, body: Any, options: RequestOptions | None) -> Any:
         return await self._transport.json(ApiRequest("PUT", path, body=body), options)
 
+    async def _patch(self, path: str, body: Any, options: RequestOptions | None) -> Any:
+        # A merge: sending the same change again leaves the resource as the first left it.
+        return await self._transport.json(
+            ApiRequest("PATCH", path, body=body, idempotent=True), options
+        )
+
     async def _delete(
         self, path: str, query: Mapping[str, Any] | None, options: RequestOptions | None
     ) -> Any:
         return await self._transport.json(ApiRequest("DELETE", path, query=query), options)
+
+
+def _update_body(
+    title: str | _Unset | None,
+    description: str | _Unset | None,
+    user_metadata: Mapping[str, Any] | _Unset | None,
+) -> dict[str, Any]:
+    """An update's body: the fields given, `None` included, since `None` removes a label."""
+    fields = {"title": title, "description": description, "user_metadata": user_metadata}
+    return {k: dump(v) for k, v in fields.items() if not isinstance(v, _Unset)}
+
+
+async def _by_id(
+    fetch: Callable[[dict[str, Any]], Awaitable[Any]],
+    parse: Callable[[Any], ChatPage | RunPage],
+    query: dict[str, Any],
+) -> AsyncPage[Any]:
+    """Page a listing whose items come newest first and whose cursors are ids: `last_id` pages
+    older, `first_id` newer. Iteration follows the direction the first query chose."""
+    newer = query.get("before_id") is not None
+
+    async def load(query: dict[str, Any]) -> AsyncPage[Any]:
+        page = parse(await fetch(query))
+        cursor = page.first_id if newer else page.last_id
+        if cursor is None:
+            step = None
+        else:
+            other = "after_id" if newer else "before_id"
+            nxt = {k: v for k, v in query.items() if k != other}
+            nxt["before_id" if newer else "after_id"] = str(cursor)
+            step = lambda: load(nxt)  # noqa: E731
+        return AsyncPage(list(page.data), page.has_more, step, reverse=newer, response=page)
+
+    return await load(query)
 
 
 class AsyncChats(AsyncResource):
@@ -214,10 +258,42 @@ class AsyncChats(AsyncResource):
         return self._handle(chat, defaults)
 
     async def get_by_external_id(
-        self, external_id: str, *, options: RequestOptions | None = None
+        self,
+        external_id: str,
+        *,
+        include: Literal["usage"] | None = None,
+        options: RequestOptions | None = None,
     ) -> ChatSummary:
-        """The chat holding `external_id`. Unknown and deleted ids are a 404."""
-        return await self._get_at(ExternalRef(external_id), options)
+        """The chat holding `external_id`. Unknown and deleted ids are a 404.
+        `include="usage"` adds the chat's cost and token totals as `usage`."""
+        return await self._get_at(ExternalRef(external_id), include, options)
+
+    async def update_by_external_id(
+        self,
+        external_id: str,
+        *,
+        title: str | _Unset | None = UNSET,
+        description: str | _Unset | None = UNSET,
+        user_metadata: Mapping[str, Any] | _Unset | None = UNSET,
+        options: RequestOptions | None = None,
+    ) -> ChatSummary:
+        """Change the chat holding `external_id`; see `update`. Its external id cannot be
+        changed."""
+        body = _update_body(title, description, user_metadata)
+        return await self._update_at(ExternalRef(external_id), body, options)
+
+    async def runs_by_external_id(
+        self,
+        external_id: str,
+        *,
+        after_id: Id | None = None,
+        before_id: Id | None = None,
+        limit: int | None = None,
+        options: RequestOptions | None = None,
+    ) -> AsyncPage[RunSummary]:
+        """The runs on the chat holding `external_id`; see `runs`."""
+        query = compact(after_id=after_id, before_id=before_id, limit=limit)
+        return await self._runs_at(ExternalRef(external_id), query, options)
 
     async def delete_by_external_id(
         self, external_id: str, *, options: RequestOptions | None = None
@@ -233,11 +309,16 @@ class AsyncChats(AsyncResource):
         after_ordinal: int | None = None,
         limit: int | None = None,
         include: Literal["stubs", "none", "full"] | None = None,
+        include_client_data: bool | None = None,
         options: RequestOptions | None = None,
     ) -> AsyncHistoryPage[HistoryPart]:
         """Read the chat holding `external_id`'s parts; see `history`."""
         query = compact(
-            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+            before_ordinal=before_ordinal,
+            after_ordinal=after_ordinal,
+            limit=limit,
+            include=include,
+            include_client_data=include_client_data,
         )
         return await self._history_at(ExternalRef(external_id), query, options)
 
@@ -270,14 +351,86 @@ class AsyncChats(AsyncResource):
             return _parse(ImportSkippedResponse, data)
         return _parse(ImportChatResponse, data)
 
-    async def get(self, chat_id: Id, *, options: RequestOptions | None = None) -> ChatSummary:
-        return await self._get_at(chat_id, options)
+    async def get(
+        self,
+        chat_id: Id,
+        *,
+        include: Literal["usage"] | None = None,
+        options: RequestOptions | None = None,
+    ) -> ChatSummary:
+        """A chat owned by your organisation; another's, or a missing one, is a 404.
+        `include="usage"` adds the chat's cost and token totals as `usage`."""
+        return await self._get_at(chat_id, include, options)
 
     async def delete(self, chat_id: Id, *, options: RequestOptions | None = None) -> None:
+        """Delete a chat and its history. A turn in progress is aborted, and the content is
+        unrecoverable once this returns. Usage and cost records are kept, so `runs.get` still
+        answers."""
         await self._delete_at(chat_id, options)
 
-    async def _get_at(self, chat: ChatRef, options: RequestOptions | None) -> ChatSummary:
-        return _parse(ChatSummary, await self._get(chat_path(chat), options=options))
+    async def update(
+        self,
+        chat_id: Id,
+        *,
+        title: str | _Unset | None = UNSET,
+        description: str | _Unset | None = UNSET,
+        user_metadata: Mapping[str, Any] | _Unset | None = UNSET,
+        options: RequestOptions | None = None,
+    ) -> ChatSummary:
+        """Change a chat's `title`, `description` or `user_metadata`; fields left out are
+        unchanged. A title or description passed as `None` or `""` is removed. `user_metadata`
+        is merged one top-level key at a time: keys given replace the stored ones and keys given
+        as `None` are removed. The namespace and external id cannot be changed. Returns the
+        updated chat."""
+        body = _update_body(title, description, user_metadata)
+        return await self._update_at(chat_id, body, options)
+
+    async def runs(
+        self,
+        chat_id: Id,
+        *,
+        after_id: Id | None = None,
+        before_id: Id | None = None,
+        limit: int | None = None,
+        options: RequestOptions | None = None,
+    ) -> AsyncPage[RunSummary]:
+        """List a chat's runs, newest first: your turns and the compaction runs Twigg made for
+        the chat, with status, model, usage, cost and timing. The context manifest is left out;
+        `runs.get` has it.
+
+        Iterating walks towards older runs by default. Passing `before_id` pages towards newer
+        runs instead, and iteration then yields them oldest first."""
+        query = compact(after_id=after_id, before_id=before_id, limit=limit)
+        return await self._runs_at(chat_id, query, options)
+
+    async def delete_by_namespace(
+        self, namespace_prefix: str, *, options: RequestOptions | None = None
+    ) -> ChatsDeleted:
+        """Delete every chat in `namespace_prefix` and every namespace beneath it, by path
+        segment: `swarm/run-abc` covers `swarm/run-abc/agent-17` but not `swarm/run-abcd`. Each
+        is deleted as `delete` deletes one. Returns how many live chats were deleted. Pair it
+        with `config.delete` to remove the subtree's configuration too."""
+        query = {"namespace_prefix": namespace_prefix}
+        return _parse(ChatsDeleted, await self._delete("/api/v1/chats", query, options))
+
+    async def _get_at(
+        self, chat: ChatRef, include: str | None, options: RequestOptions | None
+    ) -> ChatSummary:
+        data = await self._get(chat_path(chat), compact(include=include), options)
+        return _parse(ChatSummary, data)
+
+    async def _update_at(
+        self, chat: ChatRef, body: dict[str, Any], options: RequestOptions | None
+    ) -> ChatSummary:
+        return _parse(ChatSummary, await self._patch(chat_path(chat), body, options))
+
+    async def _runs_at(
+        self, chat: ChatRef, query: dict[str, Any], options: RequestOptions | None
+    ) -> AsyncPage[RunSummary]:
+        path = f"{chat_path(chat)}/runs"
+        return await _by_id(
+            lambda q: self._get(path, q, options), lambda d: _parse(RunPage, d), query
+        )
 
     async def _delete_at(self, chat: ChatRef, options: RequestOptions | None) -> None:
         await self._delete(chat_path(chat), None, options)
@@ -289,26 +442,23 @@ class AsyncChats(AsyncResource):
         after_id: Id | None = None,
         before_id: Id | None = None,
         limit: int | None = None,
+        include: Literal["usage"] | None = None,
         options: RequestOptions | None = None,
     ) -> AsyncPage[ChatSummary]:
         """List chats, newest first. A `namespace` includes everything beneath it.
+        `include="usage"` adds each chat's cost and token totals as `usage`.
 
         Iterating walks towards older chats by default. Passing `before_id` pages towards newer
         chats instead, and iteration then yields them oldest first."""
-        newer = before_id is not None
-
-        async def load(query: dict[str, Any]) -> AsyncPage[ChatSummary]:
-            page = _parse(ChatPage, await self._get("/api/v1/chats", query, options))
-            cursor = page.first_id if newer else page.last_id
-            step = (
-                None
-                if cursor is None
-                else (lambda: load({**query, ("before_id" if newer else "after_id"): str(cursor)}))
-            )
-            return AsyncPage(page.data, page.has_more, step, reverse=newer, response=page)
-
-        return await load(
-            compact(namespace=namespace, after_id=after_id, before_id=before_id, limit=limit)
+        query = compact(
+            namespace=namespace,
+            after_id=after_id,
+            before_id=before_id,
+            limit=limit,
+            include=include,
+        )
+        return await _by_id(
+            lambda q: self._get("/api/v1/chats", q, options), lambda d: _parse(ChatPage, d), query
         )
 
     async def history(
@@ -319,16 +469,21 @@ class AsyncChats(AsyncResource):
         after_ordinal: int | None = None,
         limit: int | None = None,
         include: Literal["stubs", "none", "full"] | None = None,
+        include_client_data: bool | None = None,
         options: RequestOptions | None = None,
     ) -> AsyncHistoryPage[HistoryPart]:
         """Read a chat's parts. Each page holds parts oldest first; with no cursor it is the
-        newest page.
+        newest page. `include_client_data=True` adds the `client_data` parts were sent with.
 
         Iterating walks backwards from there, yielding parts newest first, which is what a
         transcript view loading upwards wants. Passing `after_ordinal` pages forwards instead
         and yields parts oldest first."""
         query = compact(
-            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+            before_ordinal=before_ordinal,
+            after_ordinal=after_ordinal,
+            limit=limit,
+            include=include,
+            include_client_data=include_client_data,
         )
         return await self._history_at(chat_id, query, options)
 
@@ -676,6 +831,18 @@ class AsyncConfig(AsyncResource):
     async def namespaces(self, *, options: RequestOptions | None = None) -> list[str]:
         """Every namespace with configuration or chats."""
         return list(await self._get("/api/v1/config/namespaces", options=options))
+
+    async def delete(
+        self, namespace_prefix: str, *, options: RequestOptions | None = None
+    ) -> ConfigDeletion:
+        """Permanently delete every instruction, tool, retention and budget version, active or
+        not, in `namespace_prefix` and every namespace beneath it, by path segment.
+        Organisation-wide configuration is never touched, and chats there keep working under
+        what their ancestors still configure. Unlike `withdraw` this cannot be undone: the
+        deleted version ids answer 404 afterwards, including from runs that used them. Returns
+        how many versions were deleted."""
+        query = {"namespace_prefix": namespace_prefix}
+        return _parse(ConfigDeletion, await self._delete("/api/v1/config", query, options))
 
 
 class AsyncAborts(AsyncResource):

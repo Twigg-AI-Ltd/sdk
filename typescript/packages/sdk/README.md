@@ -82,15 +82,15 @@ const chat = twigg.chatByExternalId(`whatsapp:${from}`, { chat: { namespace: "su
 const reply = await chat.send(text); // one request, whether or not the chat existed
 ```
 
-Every call on the handle (`send`, `stream`, `runTools`, `retry`, `history`, `get`, `delete`,
-`abort`) goes to the external-id routes, recovery after a dropped connection included. `chat`
+Every call on the handle (`send`, `stream`, `runTools`, `retry`, `history`, `get`, `update`,
+`runs`, `delete`, `abort`) goes to the external-id routes, recovery after a dropped connection included. `chat`
 describes the chat to create; on an existing chat it is ignored, except that a different
 `namespace` is refused with 409 `external_id_namespace_mismatch`. External ids are unique per
 organisation, so prefix them (`whatsapp:`, `sms:`) to keep separate channels apart.
 
 `twigg.chats.openByExternalId(id)` creates or fetches the chat and returns an ordinary `Chat` with
-its Twigg id. `getByExternalId`, `deleteByExternalId` and `historyByExternalId` are on
-`twigg.chats`; `createByExternalId`, `runToolsByExternalId` and `abortByExternalId` are on
+its Twigg id. `getByExternalId`, `updateByExternalId`, `runsByExternalId`, `deleteByExternalId`
+and `historyByExternalId` are on `twigg.chats`; `createByExternalId`, `runToolsByExternalId` and `abortByExternalId` are on
 `twigg.responses`. `chats.create({ external_id })` sets one on a new chat, and is refused with 409
 `external_id_taken` when another chat holds it.
 
@@ -125,6 +125,32 @@ provider-safe) and lists every change in `warnings`. `arguments` may also be a s
 JSON object. At most 500 parts per import, charged per million estimated tokens stored;
 `twigg.chats.importByExternalId(id, { parts, chat })` does the same without a handle. A turn
 running on the chat makes it 409 `chat_busy`.
+
+## Managing a chat
+
+```ts
+await chat.update({ title: "Refund", user_metadata: { tier: "gold", trial: null } });
+
+const { usage } = await chat.get({ include: "usage" }); // cost and token totals, all runs
+for await (const run of chat.runs()) console.log(run.model, run.status, run.cost);
+```
+
+`update` changes only the fields you pass. A `title` or `description` of `null` or `""` removes
+it, and `user_metadata` merges one key at a time: keys you send replace the stored ones, and a
+key sent as `null` is removed. The namespace and external id cannot change.
+
+`usage` is computed only when asked for, on `get` and on `chats.list({ include: "usage" })`. Its
+`cost` counts settled runs only; `unsettled_runs` says how many may still add to it. `runs` lists
+the chat's turns and the compaction runs Twigg made for it, newest first; `twigg.runs.get(id)`
+adds the context manifest.
+
+To keep your own data beside a message, such as your UI's message id, send a part with
+`client_data`. It is stored encrypted, never sent to a model, and read back from history:
+
+```ts
+await chat.send({ type: "prompt", text, client_data: { messageId: "m-7" } });
+const page = await chat.history({ include_client_data: true }); // part.client_data
+```
 
 ## Streaming
 
@@ -232,6 +258,18 @@ await tenant.chats.open({}, { model: "claude-opus-5" });
 for await (const chat of tenant.chats.list()) console.log(chat.id);
 await tenant.config.instructions.publish({ mode: "append", body: "Answer briefly." });
 ```
+
+To clear out a namespace and everything beneath it, such as a finished batch job's, delete its
+chats and then its configuration. Both cannot be undone:
+
+```ts
+const job = twigg.namespace("swarm").child("run-abc");
+const { deleted } = await job.chats.deleteAll(); // twigg.chats.deleteByNamespace("swarm/run-abc")
+await job.config.delete(); // twigg.config.delete("swarm/run-abc")
+```
+
+Prefixes match whole path segments: `swarm/run-abc` covers `swarm/run-abc/agent-1` but not
+`swarm/run-abcd`. Organisation-wide configuration is never deleted.
 
 ## Listing
 

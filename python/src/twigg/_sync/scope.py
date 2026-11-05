@@ -8,7 +8,9 @@ from typing import Any, Literal
 
 from .._generated.models import (
     ChatCreated,
+    ChatsDeleted,
     ChatSummary,
+    ConfigDeletion,
     ConfigVersionResponse,
     ContextBudgetResponse,
     DeactivateResponse,
@@ -83,6 +85,7 @@ class ScopedChats:
         after_id: Id | None = None,
         before_id: Id | None = None,
         limit: int | None = None,
+        include: Literal["usage"] | None = None,
         options: RequestOptions | None = None,
     ) -> Page[ChatSummary]:
         """Chats in this namespace and everything beneath it."""
@@ -91,8 +94,14 @@ class ScopedChats:
             after_id=after_id,
             before_id=before_id,
             limit=limit,
+            include=include,
             options=options,
         )
+
+    def delete_all(self, *, options: RequestOptions | None = None) -> ChatsDeleted:
+        """Delete every chat in this namespace and everything beneath it; see
+        `chats.delete_by_namespace`. Returns how many were deleted."""
+        return self._scope._chats.delete_by_namespace(self._scope.namespace, options=options)
 
 
 class ScopedInstructions:
@@ -205,6 +214,11 @@ class ScopedConfig:
     def resolve(self, *, options: RequestOptions | None = None) -> ResolvedConfig:
         """The effective configuration here, after inheritance."""
         return self._config.resolve(namespace=self._scope.namespace, options=options)
+
+    def delete(self, *, options: RequestOptions | None = None) -> ConfigDeletion:
+        """Permanently delete every configuration version in this namespace and everything
+        beneath it; see `config.delete`. Cannot be undone."""
+        return self._config.delete(self._scope.namespace, options=options)
 
     def resolve_budget(
         self, *, model: Id | None = None, options: RequestOptions | None = None

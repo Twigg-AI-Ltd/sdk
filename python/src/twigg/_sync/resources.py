@@ -20,7 +20,9 @@ from .._generated.models import (
     CatalogueModelResponse,
     ChatCreated,
     ChatPage,
+    ChatsDeleted,
     ChatSummary,
+    ConfigDeletion,
     ConfigVersionResponse,
     ContextBudgetResponse,
     DeactivateResponse,
@@ -37,12 +39,14 @@ from .._generated.models import (
     ResolvedConfig,
     RetentionPolicyResponse,
     RunInspection,
+    RunPage,
+    RunSummary,
     ToolSchemaResponse,
     UsageReport,
 )
 from .._shared.options import TurnFields
 from .._shared.recovery import is_finished
-from .._shared.request import ApiRequest, RequestOptions, compact, segment
+from .._shared.request import ApiRequest, RequestOptions, compact, dump, segment
 from ..errors import APITimeoutError, invalid_response
 from .pagination import HistoryPage, Page
 from .transport import Transport
@@ -134,10 +138,48 @@ class Resource:
     def _put(self, path: str, body: Any, options: RequestOptions | None) -> Any:
         return self._transport.json(ApiRequest("PUT", path, body=body), options)
 
+    def _patch(self, path: str, body: Any, options: RequestOptions | None) -> Any:
+        # A merge: sending the same change again leaves the resource as the first left it.
+        return self._transport.json(ApiRequest("PATCH", path, body=body, idempotent=True), options)
+
     def _delete(
         self, path: str, query: Mapping[str, Any] | None, options: RequestOptions | None
     ) -> Any:
         return self._transport.json(ApiRequest("DELETE", path, query=query), options)
+
+
+def _update_body(
+    title: str | _Unset | None,
+    description: str | _Unset | None,
+    user_metadata: Mapping[str, Any] | _Unset | None,
+) -> dict[str, Any]:
+    """An update's body: the fields given, `None` included, since `None` removes a label."""
+    fields = {"title": title, "description": description, "user_metadata": user_metadata}
+    return {k: dump(v) for k, v in fields.items() if not isinstance(v, _Unset)}
+
+
+def _by_id(
+    fetch: Callable[[dict[str, Any]], Any],
+    parse: Callable[[Any], ChatPage | RunPage],
+    query: dict[str, Any],
+) -> Page[Any]:
+    """Page a listing whose items come newest first and whose cursors are ids: `last_id` pages
+    older, `first_id` newer. Iteration follows the direction the first query chose."""
+    newer = query.get("before_id") is not None
+
+    def load(query: dict[str, Any]) -> Page[Any]:
+        page = parse(fetch(query))
+        cursor = page.first_id if newer else page.last_id
+        if cursor is None:
+            step = None
+        else:
+            other = "after_id" if newer else "before_id"
+            nxt = {k: v for k, v in query.items() if k != other}
+            nxt["before_id" if newer else "after_id"] = str(cursor)
+            step = lambda: load(nxt)  # noqa: E731
+        return Page(list(page.data), page.has_more, step, reverse=newer, response=page)
+
+    return load(query)
 
 
 class Chats(Resource):
@@ -215,10 +257,42 @@ class Chats(Resource):
         return self._handle(chat, defaults)
 
     def get_by_external_id(
-        self, external_id: str, *, options: RequestOptions | None = None
+        self,
+        external_id: str,
+        *,
+        include: Literal["usage"] | None = None,
+        options: RequestOptions | None = None,
     ) -> ChatSummary:
-        """The chat holding `external_id`. Unknown and deleted ids are a 404."""
-        return self._get_at(ExternalRef(external_id), options)
+        """The chat holding `external_id`. Unknown and deleted ids are a 404.
+        `include="usage"` adds the chat's cost and token totals as `usage`."""
+        return self._get_at(ExternalRef(external_id), include, options)
+
+    def update_by_external_id(
+        self,
+        external_id: str,
+        *,
+        title: str | _Unset | None = UNSET,
+        description: str | _Unset | None = UNSET,
+        user_metadata: Mapping[str, Any] | _Unset | None = UNSET,
+        options: RequestOptions | None = None,
+    ) -> ChatSummary:
+        """Change the chat holding `external_id`; see `update`. Its external id cannot be
+        changed."""
+        body = _update_body(title, description, user_metadata)
+        return self._update_at(ExternalRef(external_id), body, options)
+
+    def runs_by_external_id(
+        self,
+        external_id: str,
+        *,
+        after_id: Id | None = None,
+        before_id: Id | None = None,
+        limit: int | None = None,
+        options: RequestOptions | None = None,
+    ) -> Page[RunSummary]:
+        """The runs on the chat holding `external_id`; see `runs`."""
+        query = compact(after_id=after_id, before_id=before_id, limit=limit)
+        return self._runs_at(ExternalRef(external_id), query, options)
 
     def delete_by_external_id(
         self, external_id: str, *, options: RequestOptions | None = None
@@ -234,11 +308,16 @@ class Chats(Resource):
         after_ordinal: int | None = None,
         limit: int | None = None,
         include: Literal["stubs", "none", "full"] | None = None,
+        include_client_data: bool | None = None,
         options: RequestOptions | None = None,
     ) -> HistoryPage[HistoryPart]:
         """Read the chat holding `external_id`'s parts; see `history`."""
         query = compact(
-            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+            before_ordinal=before_ordinal,
+            after_ordinal=after_ordinal,
+            limit=limit,
+            include=include,
+            include_client_data=include_client_data,
         )
         return self._history_at(ExternalRef(external_id), query, options)
 
@@ -271,14 +350,84 @@ class Chats(Resource):
             return _parse(ImportSkippedResponse, data)
         return _parse(ImportChatResponse, data)
 
-    def get(self, chat_id: Id, *, options: RequestOptions | None = None) -> ChatSummary:
-        return self._get_at(chat_id, options)
+    def get(
+        self,
+        chat_id: Id,
+        *,
+        include: Literal["usage"] | None = None,
+        options: RequestOptions | None = None,
+    ) -> ChatSummary:
+        """A chat owned by your organisation; another's, or a missing one, is a 404.
+        `include="usage"` adds the chat's cost and token totals as `usage`."""
+        return self._get_at(chat_id, include, options)
 
     def delete(self, chat_id: Id, *, options: RequestOptions | None = None) -> None:
+        """Delete a chat and its history. A turn in progress is aborted, and the content is
+        unrecoverable once this returns. Usage and cost records are kept, so `runs.get` still
+        answers."""
         self._delete_at(chat_id, options)
 
-    def _get_at(self, chat: ChatRef, options: RequestOptions | None) -> ChatSummary:
-        return _parse(ChatSummary, self._get(chat_path(chat), options=options))
+    def update(
+        self,
+        chat_id: Id,
+        *,
+        title: str | _Unset | None = UNSET,
+        description: str | _Unset | None = UNSET,
+        user_metadata: Mapping[str, Any] | _Unset | None = UNSET,
+        options: RequestOptions | None = None,
+    ) -> ChatSummary:
+        """Change a chat's `title`, `description` or `user_metadata`; fields left out are
+        unchanged. A title or description passed as `None` or `""` is removed. `user_metadata`
+        is merged one top-level key at a time: keys given replace the stored ones and keys given
+        as `None` are removed. The namespace and external id cannot be changed. Returns the
+        updated chat."""
+        body = _update_body(title, description, user_metadata)
+        return self._update_at(chat_id, body, options)
+
+    def runs(
+        self,
+        chat_id: Id,
+        *,
+        after_id: Id | None = None,
+        before_id: Id | None = None,
+        limit: int | None = None,
+        options: RequestOptions | None = None,
+    ) -> Page[RunSummary]:
+        """List a chat's runs, newest first: your turns and the compaction runs Twigg made for
+        the chat, with status, model, usage, cost and timing. The context manifest is left out;
+        `runs.get` has it.
+
+        Iterating walks towards older runs by default. Passing `before_id` pages towards newer
+        runs instead, and iteration then yields them oldest first."""
+        query = compact(after_id=after_id, before_id=before_id, limit=limit)
+        return self._runs_at(chat_id, query, options)
+
+    def delete_by_namespace(
+        self, namespace_prefix: str, *, options: RequestOptions | None = None
+    ) -> ChatsDeleted:
+        """Delete every chat in `namespace_prefix` and every namespace beneath it, by path
+        segment: `swarm/run-abc` covers `swarm/run-abc/agent-17` but not `swarm/run-abcd`. Each
+        is deleted as `delete` deletes one. Returns how many live chats were deleted. Pair it
+        with `config.delete` to remove the subtree's configuration too."""
+        query = {"namespace_prefix": namespace_prefix}
+        return _parse(ChatsDeleted, self._delete("/api/v1/chats", query, options))
+
+    def _get_at(
+        self, chat: ChatRef, include: str | None, options: RequestOptions | None
+    ) -> ChatSummary:
+        data = self._get(chat_path(chat), compact(include=include), options)
+        return _parse(ChatSummary, data)
+
+    def _update_at(
+        self, chat: ChatRef, body: dict[str, Any], options: RequestOptions | None
+    ) -> ChatSummary:
+        return _parse(ChatSummary, self._patch(chat_path(chat), body, options))
+
+    def _runs_at(
+        self, chat: ChatRef, query: dict[str, Any], options: RequestOptions | None
+    ) -> Page[RunSummary]:
+        path = f"{chat_path(chat)}/runs"
+        return _by_id(lambda q: self._get(path, q, options), lambda d: _parse(RunPage, d), query)
 
     def _delete_at(self, chat: ChatRef, options: RequestOptions | None) -> None:
         self._delete(chat_path(chat), None, options)
@@ -290,26 +439,23 @@ class Chats(Resource):
         after_id: Id | None = None,
         before_id: Id | None = None,
         limit: int | None = None,
+        include: Literal["usage"] | None = None,
         options: RequestOptions | None = None,
     ) -> Page[ChatSummary]:
         """List chats, newest first. A `namespace` includes everything beneath it.
+        `include="usage"` adds each chat's cost and token totals as `usage`.
 
         Iterating walks towards older chats by default. Passing `before_id` pages towards newer
         chats instead, and iteration then yields them oldest first."""
-        newer = before_id is not None
-
-        def load(query: dict[str, Any]) -> Page[ChatSummary]:
-            page = _parse(ChatPage, self._get("/api/v1/chats", query, options))
-            cursor = page.first_id if newer else page.last_id
-            step = (
-                None
-                if cursor is None
-                else (lambda: load({**query, ("before_id" if newer else "after_id"): str(cursor)}))
-            )
-            return Page(page.data, page.has_more, step, reverse=newer, response=page)
-
-        return load(
-            compact(namespace=namespace, after_id=after_id, before_id=before_id, limit=limit)
+        query = compact(
+            namespace=namespace,
+            after_id=after_id,
+            before_id=before_id,
+            limit=limit,
+            include=include,
+        )
+        return _by_id(
+            lambda q: self._get("/api/v1/chats", q, options), lambda d: _parse(ChatPage, d), query
         )
 
     def history(
@@ -320,16 +466,21 @@ class Chats(Resource):
         after_ordinal: int | None = None,
         limit: int | None = None,
         include: Literal["stubs", "none", "full"] | None = None,
+        include_client_data: bool | None = None,
         options: RequestOptions | None = None,
     ) -> HistoryPage[HistoryPart]:
         """Read a chat's parts. Each page holds parts oldest first; with no cursor it is the
-        newest page.
+        newest page. `include_client_data=True` adds the `client_data` parts were sent with.
 
         Iterating walks backwards from there, yielding parts newest first, which is what a
         transcript view loading upwards wants. Passing `after_ordinal` pages forwards instead
         and yields parts oldest first."""
         query = compact(
-            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+            before_ordinal=before_ordinal,
+            after_ordinal=after_ordinal,
+            limit=limit,
+            include=include,
+            include_client_data=include_client_data,
         )
         return self._history_at(chat_id, query, options)
 
@@ -661,6 +812,18 @@ class Config(Resource):
     def namespaces(self, *, options: RequestOptions | None = None) -> list[str]:
         """Every namespace with configuration or chats."""
         return list(self._get("/api/v1/config/namespaces", options=options))
+
+    def delete(
+        self, namespace_prefix: str, *, options: RequestOptions | None = None
+    ) -> ConfigDeletion:
+        """Permanently delete every instruction, tool, retention and budget version, active or
+        not, in `namespace_prefix` and every namespace beneath it, by path segment.
+        Organisation-wide configuration is never touched, and chats there keep working under
+        what their ancestors still configure. Unlike `withdraw` this cannot be undone: the
+        deleted version ids answer 404 afterwards, including from runs that used them. Returns
+        how many versions were deleted."""
+        query = {"namespace_prefix": namespace_prefix}
+        return _parse(ConfigDeletion, self._delete("/api/v1/config", query, options))
 
 
 class Aborts(Resource):

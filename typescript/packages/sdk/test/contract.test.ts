@@ -29,20 +29,43 @@ const calls: Record<string, { call: (t: Twigg) => Promise<unknown>; reply?: unkn
   get: { call: (t) => t.meta.version() },
   listPublicUpdates: { call: (t) => t.meta.updates(), reply: [] },
   listChats: {
-    call: (t) => t.chats.list({ namespace: "acme", after_id: id, limit: 10 }).then(),
+    call: (t) =>
+      t.chats.list({ namespace: "acme", after_id: id, limit: 10, include: "usage" }).then(),
     reply: page,
   },
+  deleteChatsByNamespace: {
+    call: (t) => t.chats.deleteByNamespace("swarm/run-abc"),
+    reply: { deleted: 0 },
+  },
   createChat: { call: (t) => t.chats.create({ namespace: "acme", title: "Billing" }) },
-  getChat: { call: (t) => t.chats.get(id) },
+  getChat: { call: (t) => t.chats.get(id, { include: "usage" }) },
+  updateChat: { call: (t) => t.chats.update(id, { title: "Billing" }), reply: { id } },
+  listChatRuns: {
+    call: (t) => t.chats.runs(id, { after_id: id, limit: 10 }).then(),
+    reply: page,
+  },
   deleteChat: { call: (t) => t.chats.delete(id) },
   openChatByExternalId: {
     call: (t) => t.chats.openByExternalId("+44 7700", { namespace: "acme" }),
     reply: { id },
   },
-  getChatByExternalId: { call: (t) => t.chats.getByExternalId("+447700") },
+  getChatByExternalId: {
+    call: (t) => t.chats.getByExternalId("+447700", { include: "usage" }),
+  },
+  updateChatByExternalId: {
+    call: (t) => t.chats.updateByExternalId("+447700", { user_metadata: { tier: null } }),
+    reply: { id },
+  },
+  listChatRunsByExternalId: {
+    call: (t) => t.chats.runsByExternalId("+447700", { before_id: id }).then(),
+    reply: page,
+  },
   deleteChatByExternalId: { call: (t) => t.chats.deleteByExternalId("+447700") },
   getChatHistoryByExternalId: {
-    call: (t) => t.chats.historyByExternalId("+447700", { after_ordinal: -1, limit: 5 }).then(),
+    call: (t) =>
+      t.chats
+        .historyByExternalId("+447700", { after_ordinal: -1, limit: 5, include_client_data: true })
+        .then(),
     reply: historyPage,
   },
   importChatByExternalId: {
@@ -85,6 +108,10 @@ const calls: Record<string, { call: (t: Twigg) => Promise<unknown>; reply?: unkn
   listCatalogue: { call: (t) => t.catalogue.list() },
   getCatalogueModel: { call: (t) => t.catalogue.get("claude-opus-5") },
   getCatalogueMarkdown: { call: (t) => t.catalogue.markdown() },
+  deleteConfiguration: {
+    call: (t) => t.config.delete("swarm/run-abc"),
+    reply: { instructions: 0, tools: 0, retention_policies: 0, context_budgets: 0 },
+  },
   getConfigurationDefaults: { call: (t) => t.config.defaults() },
   listConfigurationNamespaces: { call: (t) => t.config.namespaces(), reply: [] },
   resolveConfiguration: { call: (t) => t.config.resolve({ namespace: "acme" }) },

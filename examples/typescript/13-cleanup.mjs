@@ -1,11 +1,7 @@
-// Delete every chat the examples created in the examples namespace.
+// Delete every chat the examples created, in the examples namespace and beneath it, in one call.
 import { Twigg } from "@twigg/sdk";
 
 const twigg = new Twigg();
 
-const chats = await Array.fromAsync(twigg.chats.list({ namespace: "examples" }));
-for (const chat of chats) {
-  await twigg.chats.delete(chat.id);
-  console.log("deleted", chat.id, chat.title);
-}
-console.log(`${chats.length} chats deleted`);
+const { deleted } = await twigg.namespace("examples").chats.deleteAll();
+console.log(`${deleted} chats deleted`);

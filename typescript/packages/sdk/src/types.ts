@@ -31,6 +31,11 @@ export type ChatCreated = Schemas["ChatCreated"];
 export type ChatSummary = Schemas["ChatSummary"];
 export type ChatPage = Schemas["ChatPage"];
 export type ListChatsQuery = Query<"listChats">;
+export type GetChatQuery = Query<"getChat">;
+export type UpdateChatRequest = Schemas["UpdateChatRequest"];
+export type UserMetadataPatch = Schemas["UserMetadataPatch"];
+export type ChatUsage = Schemas["ChatUsage"];
+export type ChatsDeleted = Schemas["ChatsDeleted"];
 export type HistoryQuery = Query<"getChatHistory">;
 export type HistoryPageResponse = Schemas["HistoryPageResponse"];
 export type HistoryPart = Schemas["HistoryPart"];
@@ -42,6 +47,8 @@ export type HistoryReasoning = Schemas["HistoryReasoning"];
 export type HistoryToolCall = Schemas["HistoryToolCall"];
 export type HistoryMedia = Schemas["HistoryMedia"];
 export type UserMetadata = Schemas["UserMetadata"];
+/** Your own JSON on a submitted part, stored beside it and never sent to a model. */
+export type ClientData = Schemas["ClientData"];
 
 // Importing a conversation
 export type ImportPrompt = Schemas["ImportPrompt"];
@@ -78,15 +85,23 @@ export type ReasoningEffort = Schemas["ReasoningEffort"];
 export type AbortAccepted = Schemas["AbortAccepted"];
 export type ConfigWarning = Schemas["Warning_ConfigWarning"];
 export type TranslationWarning = Schemas["Warning_TranslationWarning"];
+export type ModelRoutedWarning = Schemas["ModelRoutedWarning"];
+export type RouteDecision = Schemas["RouteDecision"];
+export type RouterFallbackReason = Schemas["RouterFallbackReason"];
 
 // Runs
 export type RunInspection = Schemas["RunInspection"];
 export type RunStatus = Schemas["RunStatus"];
+export type RunSummary = Schemas["RunSummary"];
+export type RunPage = Schemas["RunPage"];
+export type ListRunsQuery = Query<"listChatRuns">;
 
 // Catalogue and models
 export type Catalogue = Schemas["Catalogue"];
 export type CatalogueModel = Schemas["CatalogueModel"];
 export type CatalogueModelResponse = Schemas["CatalogueModelResponse"];
+export type CatalogueRouter = Schemas["CatalogueRouter"];
+export type Provider = Schemas["Provider"];
 export type NamespacePage = Schemas["NamespacePage"];
 
 // Usage
@@ -121,6 +136,7 @@ export type RetentionPolicyVersion = Schemas["RetentionPolicyResponse"];
 export type ResolvedConfig = Schemas["ResolvedConfig"];
 export type ResolvedBudget = Schemas["ResolvedBudget"];
 export type DefaultPolicies = Schemas["DefaultPoliciesResponse"];
+export type ConfigDeletion = Schemas["ConfigDeletion"];
 
 // Discovery
 export type Discovery = Schemas["Discovery"];

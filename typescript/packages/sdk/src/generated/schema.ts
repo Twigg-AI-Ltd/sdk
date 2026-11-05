@@ -30,7 +30,7 @@ export interface paths {
         };
         /**
          * List chats
-         * @description List chats newest first. Use after_id or before_id to page; they are mutually exclusive. Unknown query parameters are ignored.
+         * @description List chats newest first. Use after_id or before_id to page; they are mutually exclusive. Pass include=usage to add each chat's cost and token totals; they are not computed otherwise. Unknown query parameters are ignored.
          */
         get: operations["listChats"];
         put?: never;
@@ -39,7 +39,11 @@ export interface paths {
          * @description Create an empty chat in the authenticated organisation. All request fields are optional. An external_id another live chat in the organisation already holds returns 409 external_id_taken; use PUT /api/v1/chats/external/{external_id} to create or get by external id.
          */
         post: operations["createChat"];
-        delete?: never;
+        /**
+         * Delete chats under a namespace prefix
+         * @description Delete every chat in namespace_prefix and every namespace beneath it, exactly as DELETE /api/v1/chats/{chat_id} deletes one: turns in progress are aborted, content is unrecoverable once this returns, and stored objects are removed in the background. Returns how many chats were deleted; a prefix with no live chats returns 0. Pair it with DELETE /api/v1/config?namespace_prefix= to remove the subtree's configuration too.
+         */
+        delete: operations["deleteChatsByNamespace"];
         options?: never;
         head?: never;
         patch?: never;
@@ -54,7 +58,7 @@ export interface paths {
         };
         /**
          * Get a chat by external id
-         * @description Fetch the chat holding this external id. Unknown ids, deleted chats and another organisation's ids all return 404.
+         * @description Fetch the chat holding this external id. Unknown ids, deleted chats and another organisation's ids all return 404. Pass include=usage to add the chat's cost and token totals.
          */
         get: operations["getChatByExternalId"];
         /**
@@ -70,7 +74,11 @@ export interface paths {
         delete: operations["deleteChatByExternalId"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a chat by external id
+         * @description The same as PATCH /api/v1/chats/{chat_id}, for the chat holding this external id. The external id itself cannot be changed.
+         */
+        patch: operations["updateChatByExternalId"];
         trace?: never;
     };
     "/api/v1/chats/external/{external_id}/abort": {
@@ -153,6 +161,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chats/external/{external_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a chat's runs by external id
+         * @description The same as GET /api/v1/chats/{chat_id}/runs, for the chat holding this external id.
+         */
+        get: operations["listChatRunsByExternalId"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chats/{chat_id}": {
         parameters: {
             query?: never;
@@ -162,19 +190,23 @@ export interface paths {
         };
         /**
          * Get a chat
-         * @description Fetch a chat owned by the authenticated organisation. Missing chats and chats owned by another organisation both return 404.
+         * @description Fetch a chat owned by the authenticated organisation. Missing chats and chats owned by another organisation both return 404. Pass include=usage to add the chat's cost and token totals.
          */
         get: operations["getChat"];
         put?: never;
         post?: never;
         /**
          * Delete a chat
-         * @description Delete a chat and its ledger. Repeating the deletion returns 404.
+         * @description Delete a chat and its history. A turn in progress is aborted. The chat's content is unrecoverable once this returns, and its stored objects are removed in the background shortly after. Usage and cost records are kept for billing, and GET /api/v1/runs/{run_id} still answers for its runs. Repeating the deletion returns 404.
          */
         delete: operations["deleteChat"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Update a chat
+         * @description Change a chat's title, description or user_metadata. Fields left out are unchanged. A title or description sent as null or an empty string is removed. user_metadata is merged one top-level key at a time: keys you send replace the stored ones, keys sent as null are removed, and the merged result must fit the 1 KB cap. The namespace and external id cannot be changed. Returns the updated chat.
+         */
+        patch: operations["updateChat"];
         trace?: never;
     };
     "/api/v1/chats/{chat_id}/abort": {
@@ -232,6 +264,46 @@ export interface paths {
          */
         post: operations["createResponse"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chats/{chat_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a chat's runs
+         * @description List the runs on a chat newest first: customer turns and the compaction runs Twigg made on the chat's behalf, with status, model, token usage, cost and timing. The context manifest is left out; read it with GET /api/v1/runs/{run_id}. Use after_id or before_id to page; they are mutually exclusive. A deleted chat returns 404.
+         */
+        get: operations["listChatRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete configuration under a namespace prefix
+         * @description Permanently delete every instruction, tool, retention and context budget version, active or not, in namespace_prefix and every namespace beneath it. Organisation-wide configuration is never touched. Chats in those namespaces keep working and resolve against what their ancestors still configure. Unlike withdrawing, this cannot be undone, and the deleted version ids return 404 afterwards, including from runs that used them. Returns how many versions were deleted; a prefix with nothing configured returns zeros.
+         */
+        delete: operations["deleteConfiguration"];
         options?: never;
         head?: never;
         patch?: never;
@@ -830,6 +902,8 @@ export interface components {
              *     prices then reflect that rate rather than the default.
              */
             organisation_specific: boolean;
+            /** @description Routers that choose among `models` per turn. */
+            routers: components["schemas"]["CatalogueRouter"][];
         };
         /**
          * @description One catalogue entry, in full. The list and the detail share it: a detail
@@ -868,6 +942,25 @@ export interface components {
         };
         CatalogueModelResponse: components["schemas"]["CatalogueModel"] & {
             markup_percent: components["schemas"]["MarkupPercent"];
+        };
+        /**
+         * @description A model router: named as `model` like any model, it chooses one of its
+         *     candidates for each turn. It has no prices of its own; a turn is billed at
+         *     the chosen model's, which the run reports.
+         */
+        CatalogueRouter: {
+            /** @description The `name`s of the models it may choose. Each is in `models`. */
+            candidates: string[];
+            /** @description What it does, including what it sends to the vendor. */
+            description: string;
+            display_name: string;
+            /** @description The `name` of the model it serves when the vendor cannot choose. */
+            fallback_model: string;
+            id: components["schemas"]["RouterId"];
+            /** @description The identifier to send as `model` on a run. */
+            name: string;
+            vendor: components["schemas"]["RouterVendor"];
+            vendor_label: string;
         };
         /** @description The new chat, including its immutable namespace, labels, metadata and creation time. */
         ChatCreated: {
@@ -936,9 +1029,60 @@ export interface components {
             title: null | components["schemas"]["ChatTitle"];
             /** Format: date-time */
             updated_at: string;
+            usage?: null | components["schemas"]["ChatUsage"];
             user_metadata: components["schemas"]["UserMetadata"];
         };
         ChatTitle: string;
+        /** @description What a chat has used so far, summed over its runs. */
+        ChatUsage: {
+            /** Format: int64 */
+            cache_read_tokens: number;
+            /** Format: int64 */
+            cache_write_tokens: number;
+            /**
+             * @description What the chat has been charged, in the platform currency: settled runs
+             *     only. Compaction runs are included, since they are billed.
+             */
+            cost: string;
+            /** Format: int64 */
+            input_tokens: number;
+            /** Format: int64 */
+            output_tokens: number;
+            /**
+             * Format: int64
+             * @description The thinking share of `output_tokens`, not an addition to it.
+             */
+            reasoning_tokens: number;
+            /**
+             * Format: int64
+             * @description Every run on the chat, failed and compaction runs included.
+             */
+            runs: number;
+            /**
+             * Format: int64
+             * @description Runs that may still add to `cost`: in flight, or finished and awaiting
+             *     settlement.
+             */
+            unsettled_runs: number;
+        };
+        /** @description What [`delete_subtree`] deleted. */
+        ChatsDeleted: {
+            /**
+             * Format: int64
+             * @description Live chats deleted by this call. Chats already deleted are not counted.
+             */
+            deleted: number;
+        };
+        /** @description The vendor chose it for this turn. */
+        ChosenRoute: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "chosen";
+        };
+        /** @description Your own JSON for this part, at most 65536 bytes when serialized compactly. null is the same as leaving it out. Stored encrypted beside the part, never sent to a model, and returned by the history endpoint with include_client_data=true. */
+        ClientData: Record<string, unknown>;
         /** @description Compaction work the request is waiting for. */
         CompactingEvent: {
             data: components["schemas"]["CompactingEventData"];
@@ -957,6 +1101,17 @@ export interface components {
             blocks_generated: number;
             blocks_reused: number;
             in_progress_elsewhere: number;
+        };
+        /** @description Row counts per config table. Every version is counted, active or not. */
+        ConfigDeletion: {
+            /** Format: int64 */
+            context_budgets: number;
+            /** Format: int64 */
+            instructions: number;
+            /** Format: int64 */
+            retention_policies: number;
+            /** Format: int64 */
+            tools: number;
         };
         /** @enum {string} */
         ConfigMode: "append" | "replace";
@@ -977,7 +1132,7 @@ export interface components {
             version: number;
         };
         /** @description Something legal but worth saying out loud. */
-        ConfigWarning: components["schemas"]["ToolShadowedWarning"] | components["schemas"]["GlobalInstructionReplacedWarning"] | components["schemas"]["GlobalToolsReplacedWarning"] | components["schemas"]["RetentionPolicyOverriddenWarning"] | components["schemas"]["ContextBudgetResolvedAtWarning"] | components["schemas"]["HistoryDroppedWarning"] | components["schemas"]["ProviderKeyPausedWarning"] | components["schemas"]["ProviderKeyFellThroughWarning"];
+        ConfigWarning: components["schemas"]["ToolShadowedWarning"] | components["schemas"]["GlobalInstructionReplacedWarning"] | components["schemas"]["GlobalToolsReplacedWarning"] | components["schemas"]["RetentionPolicyOverriddenWarning"] | components["schemas"]["ContextBudgetResolvedAtWarning"] | components["schemas"]["HistoryDroppedWarning"] | components["schemas"]["ProviderKeyPausedWarning"] | components["schemas"]["ProviderKeyFellThroughWarning"] | components["schemas"]["ModelRoutedWarning"];
         /** @description Configuration warnings; emitted second, and may repeat after compaction. */
         ConfigWarningsEvent: {
             data: components["schemas"]["ConfigWarningsEventData"];
@@ -1210,6 +1365,15 @@ export interface components {
         };
         /** @description Your own identifier for the chat, such as a phone number or a chat id from another system. Unique within your organisation, case-sensitive, printable ASCII without spaces, and without `%`, `/`, `\`, `?`, `#` or a leading `.`, which change what a URL means. Percent-encode it in a URL path (`+` as `%2B`). It travels in URL paths, so it appears in request logs: if it identifies a person and that matters to you, send a hash or another opaque value instead of the raw identifier. */
         ExternalChatId: string;
+        /** @description The router's fallback model, because the vendor's choice was unusable. */
+        FallbackRoute: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "fallback";
+            reason: components["schemas"]["RouterFallbackReason"];
+        };
         /**
          * @description Replay artifacts the target cannot accept were stripped: ones authored by
          *     a different model family, or Gemini signatures minted on the other Google
@@ -1326,6 +1490,7 @@ export interface components {
         };
         /** @description A stored chat part with its ID, position, metadata and content. Prompt and tool-result content can be reused in a new submission; assistant-authored parts cannot be submitted. */
         HistoryPart: {
+            client_data?: null | components["schemas"]["ClientData"];
             /** Format: date-time */
             created_at: string;
             id: components["schemas"]["ChatPartId"];
@@ -1581,6 +1746,20 @@ export interface components {
         MimeType: string;
         /** Format: uuid */
         ModelId: string;
+        /**
+         * @description The request named a router, and this is the model it chose. Always
+         *     present on a routed turn, so the customer can see what ran and why.
+         */
+        ModelRoutedWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            code: "model_routed";
+            decision: components["schemas"]["RouteDecision"];
+            model: string;
+            router: string;
+        };
         ModelUsageGroup: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1676,7 +1855,7 @@ export interface components {
             tagged_model?: null | components["schemas"]["ModelId"];
         };
         /** @enum {string} */
-        Provider: "anthropic" | "openai" | "google" | "xai" | "fireworks" | "openrouter";
+        Provider: "anthropic" | "openai" | "google" | "xai" | "fireworks" | "openrouter" | "abliteration";
         /**
          * @description The organisation's own provider key failed before any output, and the
          *     model allows falling back, so the turn runs on Twigg's key and is billed
@@ -2085,6 +2264,25 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        /** @description A retry runs on the model the failed run used. */
+        RetryRoute: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "retry";
+        };
+        /**
+         * @description How a routed turn's model was decided. Reported to the customer, so a
+         *     fallback is never silent.
+         */
+        RouteDecision: components["schemas"]["ChosenRoute"] | components["schemas"]["ToolLoopRoute"] | components["schemas"]["RetryRoute"] | components["schemas"]["FallbackRoute"];
+        /** @enum {string} */
+        RouterFallbackReason: "not_configured" | "timeout" | "unavailable" | "unknown_model" | "no_candidates" | "no_question";
+        /** Format: uuid */
+        RouterId: string;
+        /** @enum {string} */
+        RouterVendor: "telluvian";
         /** @description Always first: identifiers and tool calls closed by this submission. */
         RunEvent: {
             data: components["schemas"]["RunEventData"];
@@ -2157,8 +2355,46 @@ export interface components {
         };
         /** @enum {string} */
         RunOrigin: "customer" | "compaction";
+        /** @description One page of a chat's runs. */
+        RunPage: {
+            /** @description Newest first, whichever direction was paged. */
+            data: components["schemas"]["RunSummary"][];
+            first_id: null | components["schemas"]["RunId"];
+            /** @description Whether more runs exist in the direction being paged. */
+            has_more: boolean;
+            last_id: null | components["schemas"]["RunId"];
+        };
         /** @enum {string} */
         RunStatus: "running" | "succeeded" | "failed" | "cancelled";
+        /**
+         * @description One run in a chat's run listing: [`RunInspection`] without the chat it
+         *     belongs to, which the path already names, and without the manifest, which
+         *     can be large. `GET /api/v1/runs/{id}` has both.
+         */
+        RunSummary: {
+            /** Format: date-time */
+            completed_at: string | null;
+            /** @description What it was charged, once settled. */
+            cost: string | null;
+            /** Format: date-time */
+            created_at: string;
+            error: string | null;
+            id: components["schemas"]["RunId"];
+            is_live: boolean;
+            /** Format: int32 */
+            latency_ms: number | null;
+            model: string;
+            /**
+             * @description `compaction` runs are Twigg's own context management on this chat, and
+             *     billed like the rest.
+             */
+            origin: components["schemas"]["RunOrigin"];
+            provider_request_id: string | null;
+            /** Format: date-time */
+            settled_at: string | null;
+            status: components["schemas"]["RunStatus"];
+            usage: null | components["schemas"]["Usage"];
+        };
         RunUsageGroup: {
             api_key_id?: null | components["schemas"]["ApiKeyId"];
             /**
@@ -2224,6 +2460,7 @@ export interface components {
         SubmittedPart: components["schemas"]["SubmittedPrompt"] | components["schemas"]["SubmittedToolResult"];
         /** @description The customer's own turn. */
         SubmittedPrompt: {
+            client_data?: null | components["schemas"]["ClientData"];
             media?: components["schemas"]["SubmittedMedia"][];
             text?: string;
             /**
@@ -2234,6 +2471,7 @@ export interface components {
         };
         /** @description The answer to a tool call the model made. */
         SubmittedToolResult: {
+            client_data?: null | components["schemas"]["ClientData"];
             /**
              * @description Anthropic's `tool_result.is_error`. Dropped when translating to a
              *     provider with no equivalent.
@@ -2353,6 +2591,14 @@ export interface components {
             kind: "tool_input";
             text: string;
         };
+        /** @description The turn answers tool calls, so it stays on the model that made them. */
+        ToolLoopRoute: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "tool_loop";
+        };
         ToolName: string;
         ToolNamePattern: string;
         /** @description One tool rule. */
@@ -2465,6 +2711,20 @@ export interface components {
         /** @enum {string} */
         TrustLevel: "trusted" | "customer_data" | "untrusted";
         UpdateBody: string;
+        /**
+         * @description Body for [`update`]. Every field is optional, and a field left out is left
+         *     alone.
+         *
+         *     `title` and `description` sent as `null` or `""` are removed, the same
+         *     coercion create applies, so clearing a form field clears the label.
+         *     `namespace` and `external_id` are not here and are refused as unknown
+         *     fields rather than ignored: a client that sent one expected it to change.
+         */
+        UpdateChatRequest: {
+            description?: null | components["schemas"]["ChatDescription"];
+            title?: null | components["schemas"]["ChatTitle"];
+            user_metadata?: null | components["schemas"]["UserMetadataPatch"];
+        };
         /** Format: uuid */
         UpdateId: string;
         /** @enum {string} */
@@ -2593,7 +2853,9 @@ export interface components {
         };
         /** @description Customer JSON object, at most 1024 bytes when serialized compactly. Defaults to an empty object. */
         UserMetadata: Record<string, unknown>;
-        Warning_ConfigWarning: (components["schemas"]["ToolShadowedWarning"] | components["schemas"]["GlobalInstructionReplacedWarning"] | components["schemas"]["GlobalToolsReplacedWarning"] | components["schemas"]["RetentionPolicyOverriddenWarning"] | components["schemas"]["ContextBudgetResolvedAtWarning"] | components["schemas"]["HistoryDroppedWarning"] | components["schemas"]["ProviderKeyPausedWarning"] | components["schemas"]["ProviderKeyFellThroughWarning"]) & {
+        /** @description Keys to set on the chat's user_metadata. A key sent as null is removed; keys left out are kept. Each value replaces the stored one whole, nested objects included. The merged result must be at most 1024 bytes when serialized compactly. */
+        UserMetadataPatch: Record<string, unknown>;
+        Warning_ConfigWarning: (components["schemas"]["ToolShadowedWarning"] | components["schemas"]["GlobalInstructionReplacedWarning"] | components["schemas"]["GlobalToolsReplacedWarning"] | components["schemas"]["RetentionPolicyOverriddenWarning"] | components["schemas"]["ContextBudgetResolvedAtWarning"] | components["schemas"]["HistoryDroppedWarning"] | components["schemas"]["ProviderKeyPausedWarning"] | components["schemas"]["ProviderKeyFellThroughWarning"] | components["schemas"]["ModelRoutedWarning"]) & {
             message: string;
         };
         Warning_TranslationWarning: (components["schemas"]["MediaLimitExceededWarning"] | components["schemas"]["MediaUnsupportedWarning"] | components["schemas"]["ReasoningNotSupportedWarning"] | components["schemas"]["ReasoningCannotBeDisabledWarning"] | components["schemas"]["ReasoningEffortClampedWarning"] | components["schemas"]["ToolFieldDroppedWarning"] | components["schemas"]["ForeignArtifactsStrippedWarning"]) & {
@@ -2648,6 +2910,11 @@ export interface operations {
                 before_id?: components["schemas"]["ChatId"];
                 /** @description 1–100. Out-of-range values are clamped. */
                 limit?: number;
+                /**
+                 * @description `usage` adds each chat's cost and token totals. Left out, they are not
+                 *     computed at all.
+                 */
+                include?: "usage";
             };
             header?: never;
             path?: never;
@@ -2770,9 +3037,79 @@ export interface operations {
             };
         };
     };
+    deleteChatsByNamespace: {
+        parameters: {
+            query: {
+                /**
+                 * @description Deletes the chats in this namespace and every namespace beneath it, by
+                 *     path segment: `swarm/run-abc` covers `swarm/run-abc/agent-17` but not
+                 *     `swarm/run-abcd`.
+                 */
+                namespace_prefix: components["schemas"]["Namespace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted chat count */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatsDeleted"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     getChatByExternalId: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `usage` adds the chat's cost and token totals. */
+                include?: "usage";
+            };
             header?: never;
             path: {
                 /** @description Your own identifier for the chat */
@@ -3005,6 +3342,90 @@ export interface operations {
             };
         };
     };
+    updateChatByExternalId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateChatRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated chat */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSummary"];
+                };
+            };
+            /** @description A malformed external id in the path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     abortResponseByExternalId: {
         parameters: {
             query?: {
@@ -3122,6 +3543,11 @@ export interface operations {
                  *     `full`.
                  */
                 include?: "stubs" | "none" | "full";
+                /**
+                 * @description `true` adds each part's `client_data`, for the parts that were submitted
+                 *     with some. Off by default, since it is a second object per such part.
+                 */
+                include_client_data?: boolean;
             };
             header?: never;
             path: {
@@ -3416,9 +3842,91 @@ export interface operations {
             };
         };
     };
+    listChatRunsByExternalId: {
+        parameters: {
+            query?: {
+                /** @description Page **older** than this run id. */
+                after_id?: components["schemas"]["RunId"];
+                /** @description Page **newer** than this run id. */
+                before_id?: components["schemas"]["RunId"];
+                /** @description 1–100. Out-of-range values are clamped. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Your own identifier for the chat */
+                external_id: components["schemas"]["ExternalChatId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List a chat's runs by external id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPage"];
+                };
+            };
+            /** @description A malformed external id in the path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     getChat: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `usage` adds the chat's cost and token totals. */
+                include?: "usage";
+            };
             header?: never;
             path: {
                 /** @description Resource identifier */
@@ -3523,6 +4031,89 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    updateChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateChatRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated chat */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSummary"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            413: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3672,6 +4263,11 @@ export interface operations {
                  *     `full`.
                  */
                 include?: "stubs" | "none" | "full";
+                /**
+                 * @description `true` adds each part's `client_data`, for the parts that were submitted
+                 *     with some. Off by default, since it is a second object per such part.
+                 */
+                include_client_data?: boolean;
             };
             header?: never;
             path: {
@@ -3852,6 +4448,151 @@ export interface operations {
             };
             /** @description response_timeout: with stream: false, the turn outlasted the request. It continues and is billed. With an idempotency_key, retry with it to receive the result; without one, do not resend. */
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listChatRuns: {
+        parameters: {
+            query?: {
+                /** @description Page **older** than this run id. */
+                after_id?: components["schemas"]["RunId"];
+                /** @description Page **newer** than this run id. */
+                before_id?: components["schemas"]["RunId"];
+                /** @description 1–100. Out-of-range values are clamped. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Resource identifier */
+                chat_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List a chat's runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    deleteConfiguration: {
+        parameters: {
+            query: {
+                /**
+                 * @description Deletes this namespace's configuration and that of every namespace
+                 *     beneath it, by path segment: `swarm/run-abc` covers
+                 *     `swarm/run-abc/planner-1` but not `swarm/run-abcd`.
+                 */
+                namespace_prefix: components["schemas"]["Namespace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted version counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigDeletion"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

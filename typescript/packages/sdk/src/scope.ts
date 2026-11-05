@@ -8,6 +8,8 @@ import type { UsageResource } from "./resources/usage.js";
 import type {
   ChatCreated,
   ChatSummary,
+  ChatsDeleted,
+  ConfigDeletion,
   ConfigVersion,
   ContextBudgetVersion,
   CreateChatRequest,
@@ -55,6 +57,11 @@ export class NamespaceScope {
       query?: WithoutNamespace<ListChatsQuery>,
       options?: RequestOptions,
     ): PagePromise<ChatSummary>;
+    /**
+     * Delete every chat in this namespace and everything beneath it; see
+     * `chats.deleteByNamespace`. Returns how many were deleted.
+     */
+    deleteAll(options?: RequestOptions): Promise<ChatsDeleted>;
   };
   readonly config: {
     instructions: {
@@ -96,6 +103,11 @@ export class NamespaceScope {
     /** The effective configuration here, after inheritance. */
     resolve(options?: RequestOptions): Promise<ResolvedConfig>;
     resolveBudget(query?: { model?: ModelId }, options?: RequestOptions): Promise<ResolvedBudget>;
+    /**
+     * Permanently delete every configuration version in this namespace and everything beneath
+     * it; see `config.delete`. Cannot be undone.
+     */
+    delete(options?: RequestOptions): Promise<ConfigDeletion>;
   };
   readonly usage: {
     /** Usage for this namespace and everything beneath it. */
@@ -115,6 +127,7 @@ export class NamespaceScope {
       create: (body = {}, options) => chats.create(pin(body, namespace), options),
       open: (body = {}, defaults, options) => deps.open(pin(body, namespace), defaults, options),
       list: (query = {}, options) => chats.list(pin(query, namespace), options),
+      deleteAll: (options) => chats.deleteByNamespace(namespace, options),
     };
     this.config = {
       instructions: {
@@ -140,6 +153,7 @@ export class NamespaceScope {
       },
       resolve: (options) => config.resolve(ns, options),
       resolveBudget: (query = {}, options) => config.resolveBudget({ ...query, ...ns }, options),
+      delete: (options) => config.delete(namespace, options),
     };
     // Cast: TypeScript cannot match the two generic signatures, though they agree.
     const query = (q: WithoutNamespace<UsageQuery>, options?: RequestOptions) =>

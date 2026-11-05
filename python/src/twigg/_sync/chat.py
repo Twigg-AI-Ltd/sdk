@@ -16,13 +16,14 @@ from .._generated.models import (
     HistoryPart,
     ImportChatResponse,
     ImportSkippedResponse,
+    RunSummary,
 )
 from .._shared.input import MessageInput, to_parts
 from .._shared.options import RetryFields, ToolLoopFields, TurnFields, pick
 from .._shared.request import RequestOptions, compact
 from .._shared.result import ResponseResult
-from .pagination import HistoryPage
-from .resources import ChatRef, Chats, ExternalRef, Id
+from .pagination import HistoryPage, Page
+from .resources import UNSET, ChatRef, Chats, ExternalRef, Id, _Unset, _update_body
 from .responses import Responses
 from .runner import ToolRunner
 from .stream import ResponseStream
@@ -77,17 +78,49 @@ class _AsyncChatHandle:
         after_ordinal: int | None = None,
         limit: int | None = None,
         include: Literal["stubs", "none", "full"] | None = None,
+        include_client_data: bool | None = None,
         options: RequestOptions | None = None,
     ) -> HistoryPage[HistoryPart]:
         """Read the chat's parts; see `chats.history`. `after_ordinal=-1` reads from the start,
         oldest first."""
         query = compact(
-            before_ordinal=before_ordinal, after_ordinal=after_ordinal, limit=limit, include=include
+            before_ordinal=before_ordinal,
+            after_ordinal=after_ordinal,
+            limit=limit,
+            include=include,
+            include_client_data=include_client_data,
         )
         return self._chats._history_at(self._ref, query, options)
 
-    def get(self, *, options: RequestOptions | None = None) -> ChatSummary:
-        return self._chats._get_at(self._ref, options)
+    def get(
+        self, *, include: Literal["usage"] | None = None, options: RequestOptions | None = None
+    ) -> ChatSummary:
+        """The chat's record. `include="usage"` adds its cost and token totals as `usage`."""
+        return self._chats._get_at(self._ref, include, options)
+
+    def update(
+        self,
+        *,
+        title: str | _Unset | None = UNSET,
+        description: str | _Unset | None = UNSET,
+        user_metadata: Mapping[str, Any] | _Unset | None = UNSET,
+        options: RequestOptions | None = None,
+    ) -> ChatSummary:
+        """Change the chat's title, description or user_metadata; see `chats.update`."""
+        body = _update_body(title, description, user_metadata)
+        return self._chats._update_at(self._ref, body, options)
+
+    def runs(
+        self,
+        *,
+        after_id: Id | None = None,
+        before_id: Id | None = None,
+        limit: int | None = None,
+        options: RequestOptions | None = None,
+    ) -> Page[RunSummary]:
+        """The chat's runs, newest first; see `chats.runs`."""
+        query = compact(after_id=after_id, before_id=before_id, limit=limit)
+        return self._chats._runs_at(self._ref, query, options)
 
     def delete(self, *, options: RequestOptions | None = None) -> None:
         self._chats._delete_at(self._ref, options)

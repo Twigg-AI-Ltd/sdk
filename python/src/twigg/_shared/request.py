@@ -37,7 +37,7 @@ class RequestOptions:
 
 @dataclass(frozen=True)
 class ApiRequest:
-    method: Literal["GET", "POST", "PUT", "DELETE"]
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
     path: str
     query: Mapping[str, Any] | None = None
     body: Any = None

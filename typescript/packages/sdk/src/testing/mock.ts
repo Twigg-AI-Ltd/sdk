@@ -4,6 +4,8 @@ import { type ClientOptions, Twigg } from "../client.js";
 import type {
   CatalogueModel,
   ChatSummary,
+  ChatUsage,
+  ClientData,
   CreateChatRequest,
   CreateResponseRequest,
   HistoryBody,
@@ -12,6 +14,8 @@ import type {
   OpenChatRequest,
   ResponseEvent,
   RunInspection,
+  RunSummary,
+  UpdateChatRequest,
 } from "../types.js";
 import { fakeId, type StreamBuilder, sseResponse } from "./stream-builder.js";
 
@@ -71,6 +75,8 @@ export class MockServer {
   readonly chats = new Map<string, StoredChat>();
   readonly parts = new Map<string, HistoryPart[]>();
   readonly runs = new Map<string, RunInspection>();
+  /** The `client_data` submitted with each part, by part id. */
+  readonly clientData = new Map<string, ClientData>();
   /** Every request the client made, in order. */
   readonly calls: RecordedCall[] = [];
   private readonly keys = new Map<string, string>();
@@ -112,15 +118,17 @@ export class MockServer {
     if (!id) {
       if (method === "POST") return json(this.createChat(body as CreateChatRequest), 201);
       if (method === "GET") return json(this.listChats(query));
+      if (method === "DELETE") return json(this.deleteChats(query.namespace_prefix ?? ""));
     } else if (!sub) {
       const chat = this.chat(id);
-      if (method === "GET") return json(chat);
+      if (method === "GET") return json(this.summary(chat, query));
+      if (method === "PATCH") return json(this.updateChat(chat, body as UpdateChatRequest));
       if (method === "DELETE") {
-        this.chats.delete(id);
-        this.parts.delete(id);
+        this.deleteChat(id);
         return new Response(null, { status: 204 });
       }
     } else if (sub === "history" && method === "GET") return json(this.history(id, query));
+    else if (sub === "runs" && method === "GET") return json(this.listRuns(id, query));
     else if (sub === "responses" && method === "POST")
       return this.respond(id, body as CreateResponseRequest);
     else if (sub === "abort" && method === "POST")
@@ -261,6 +269,104 @@ export class MockServer {
       hasMore = all.length > limit;
     }
     return {
+      data: page.map((chat) => this.summary(chat, query)),
+      first_id: page[0]?.id ?? null,
+      last_id: page.at(-1)?.id ?? null,
+      has_more: hasMore,
+    };
+  }
+
+  /** The chat as the API answers it, with `usage` when the query asked for it. */
+  private summary(chat: StoredChat, query: Record<string, string>): ChatSummary {
+    return query.include === "usage" ? { ...chat, usage: this.usage(chat.id) } : chat;
+  }
+
+  private usage(chatId: string): ChatUsage {
+    const runs = [...this.runs.values()].filter((r) => r.chat_id === chatId);
+    let cost = 0;
+    const total: ChatUsage = {
+      cost: "0",
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 0,
+      runs: runs.length,
+      unsettled_runs: 0,
+    };
+    for (const run of runs) {
+      if (run.settled_at && run.cost) cost += Number(run.cost);
+      else total.unsettled_runs++;
+      if (!run.usage) continue;
+      total.input_tokens += run.usage.input_tokens;
+      total.output_tokens += run.usage.output_tokens;
+      total.cache_read_tokens += run.usage.cache_read_tokens;
+      total.cache_write_tokens += run.usage.cache_write_tokens;
+      total.reasoning_tokens += run.usage.reasoning_tokens ?? 0;
+    }
+    total.cost = String(cost);
+    return total;
+  }
+
+  /** Apply an update as the API does: empty labels are removed, metadata merges by key. */
+  private updateChat(chat: StoredChat, request: UpdateChatRequest): StoredChat {
+    const unknown = Object.keys(request).filter(
+      (key) => !["title", "description", "user_metadata"].includes(key),
+    );
+    if (unknown.length) throw error(422, "unprocessable_entity", `unknown field \`${unknown[0]}\``);
+    if ("title" in request) chat.title = request.title || null;
+    if ("description" in request) chat.description = request.description || null;
+    if (request.user_metadata) {
+      const merged: Record<string, unknown> = { ...(chat.user_metadata as object) };
+      for (const [key, value] of Object.entries(request.user_metadata)) {
+        if (value === null) delete merged[key];
+        else merged[key] = value;
+      }
+      chat.user_metadata = merged;
+    }
+    return chat;
+  }
+
+  private deleteChat(id: string): void {
+    for (const part of this.parts.get(id) ?? []) this.clientData.delete(part.id);
+    this.chats.delete(id);
+    this.parts.delete(id);
+  }
+
+  /** Delete the chats in a namespace and beneath it, by path segment. */
+  private deleteChats(prefix: string) {
+    if (!prefix) throw error(400, "bad_request", "namespace_prefix is required");
+    const doomed = [...this.chats.values()].filter(
+      (c) => c.namespace === prefix || c.namespace?.startsWith(`${prefix}/`),
+    );
+    for (const chat of doomed) this.deleteChat(chat.id);
+    return { deleted: doomed.length };
+  }
+
+  /** The chat's runs, newest first, paged by run id. */
+  private listRuns(chatId: string, query: Record<string, string>) {
+    this.chat(chatId);
+    let all: RunSummary[] = [...this.runs.values()]
+      .filter((r) => r.chat_id === chatId)
+      .map(({ chat_id: _, namespace: __, manifest: ___, ...run }) => run)
+      .reverse();
+    const limit = Math.min(Math.max(Number(query.limit ?? 20), 1), 100);
+    if (query.after_id) {
+      const at = all.findIndex((r) => r.id === query.after_id);
+      all = at === -1 ? [] : all.slice(at + 1);
+    }
+    let page: RunSummary[];
+    let hasMore: boolean;
+    if (query.before_id) {
+      const end = all.findIndex((r) => r.id === query.before_id);
+      const newer = all.slice(0, Math.max(end, 0));
+      page = newer.slice(-limit);
+      hasMore = newer.length > limit;
+    } else {
+      page = all.slice(0, limit);
+      hasMore = all.length > limit;
+    }
+    return {
       data: page,
       first_id: page[0]?.id ?? null,
       last_id: page.at(-1)?.id ?? null,
@@ -285,8 +391,12 @@ export class MockServer {
       page = older.slice(-limit);
       hasMore = older.length > limit;
     }
+    const withData = query.include_client_data === "true";
     return {
-      data: page,
+      data: page.map((part) => {
+        const data = withData ? this.clientData.get(part.id) : undefined;
+        return data === undefined ? part : { ...part, client_data: data };
+      }),
       first_ordinal: page[0]?.ordinal ?? null,
       last_ordinal: page.at(-1)?.ordinal ?? null,
       has_more: hasMore,
@@ -313,17 +423,22 @@ export class MockServer {
 
     for (const part of request.input) {
       if (part.type === "prompt")
-        this.append(chatId, "user", { type: "prompt", text: part.text ?? "" });
+        this.append(chatId, "user", { type: "prompt", text: part.text ?? "" }, part.client_data);
       else
-        this.append(chatId, "user", {
-          type: "tool_result",
-          tool_use_id: part.tool_use_id,
-          tool_name: part.tool_name,
-          text: part.text ?? "",
-          is_error: part.is_error ?? false,
-          trust: part.trust ?? "customer_data",
-          tombstone_reason: null,
-        });
+        this.append(
+          chatId,
+          "user",
+          {
+            type: "tool_result",
+            tool_use_id: part.tool_use_id,
+            tool_name: part.tool_name,
+            text: part.text ?? "",
+            is_error: part.is_error ?? false,
+            trust: part.trust ?? "customer_data",
+            tombstone_reason: null,
+          },
+          part.client_data,
+        );
     }
     const builder =
       typeof turn === "function"
@@ -422,10 +537,17 @@ export class MockServer {
     });
   }
 
-  private append(chatId: string, role: "user" | "assistant", part: HistoryBody): void {
+  private append(
+    chatId: string,
+    role: "user" | "assistant",
+    part: HistoryBody,
+    clientData?: ClientData | null,
+  ): void {
     const parts = this.chatParts(chatId);
+    const id = fakeId(11);
+    if (clientData !== undefined && clientData !== null) this.clientData.set(id, clientData);
     parts.push({
-      id: fakeId(11),
+      id,
       ordinal: this.ordinal++,
       created_at: this.now(),
       role,
