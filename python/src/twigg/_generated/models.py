@@ -101,6 +101,15 @@ class UnknownResponseEvent(BaseModel):
     event: str
 
 
+class UnknownRouteDecision(BaseModel):
+    """A RouteDecision variant this SDK version does not know. Every field the API sent is kept."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: str
+
+
 class UnknownSubmittedPart(BaseModel):
     """A SubmittedPart variant this SDK version does not know. Every field the API sent is kept."""
 
@@ -163,6 +172,73 @@ ChatDescription = TypeAliasType(
 ChatTitle = TypeAliasType("ChatTitle", Annotated[str, Field(max_length=50, min_length=1)])
 
 
+class ChatUsage(BaseModel):
+    """
+    What a chat has used so far, summed over its runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cache_read_tokens: int
+    cache_write_tokens: int
+    cost: str
+    """
+    What the chat has been charged, in the platform currency: settled runs
+    only. Compaction runs are included, since they are billed.
+    """
+    input_tokens: int
+    output_tokens: int
+    reasoning_tokens: int
+    """
+    The thinking share of `output_tokens`, not an addition to it.
+    """
+    runs: int
+    """
+    Every run on the chat, failed and compaction runs included.
+    """
+    unsettled_runs: int
+    """
+    Runs that may still add to `cost`: in flight, or finished and awaiting
+    settlement.
+    """
+
+
+class ChatsDeleted(BaseModel):
+    """
+    What [`delete_subtree`] deleted.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    deleted: Annotated[int, Field(ge=0)]
+    """
+    Live chats deleted by this call. Chats already deleted are not counted.
+    """
+
+
+class ChosenRoute(BaseModel):
+    """
+    The vendor chose it for this turn.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["chosen"]
+
+
+class ClientData(BaseModel):
+    """
+    Your own JSON for this part, at most 65536 bytes when serialized compactly. null is the same as leaving it out. Stored encrypted beside the part, never sent to a model, and returned by the history endpoint with include_client_data=true.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class CompactingEventData(BaseModel):
     """
     Compaction work the request is waiting for.
@@ -182,6 +258,20 @@ class Compaction(BaseModel):
     blocks_generated: Annotated[int, Field(ge=0)]
     blocks_reused: Annotated[int, Field(ge=0)]
     in_progress_elsewhere: Annotated[int, Field(ge=0)]
+
+
+class ConfigDeletion(BaseModel):
+    """
+    Row counts per config table. Every version is counted, active or not.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    context_budgets: Annotated[int, Field(ge=0)]
+    instructions: Annotated[int, Field(ge=0)]
+    retention_policies: Annotated[int, Field(ge=0)]
+    tools: Annotated[int, Field(ge=0)]
 
 
 class DeactivateResponse(BaseModel):
@@ -729,6 +819,17 @@ class RetentionPolicyOverriddenWarning(BaseModel):
     namespace: Namespace | None = None
 
 
+class RetryRoute(BaseModel):
+    """
+    A retry runs on the model the failed run used.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["retry"]
+
+
 class RunUsageGroup(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -803,6 +904,7 @@ class SubmittedPrompt(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    client_data: ClientData | None = None
     media: list[SubmittedMedia] | None = None
     text: str | None = None
     type: Literal["prompt"]
@@ -832,6 +934,17 @@ class ToolInputDelta(BaseModel):
     )
     kind: Literal["tool_input"]
     text: str
+
+
+class ToolLoopRoute(BaseModel):
+    """
+    The turn answers tool calls, so it stays on the model that made them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["tool_loop"]
 
 
 class ToolShadowedWarning(BaseModel):
@@ -942,6 +1055,16 @@ class UsageWindow(BaseModel):
 class UserMetadata(BaseModel):
     """
     Customer JSON object, at most 1024 bytes when serialized compactly. Defaults to an empty object.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class UserMetadataPatch(BaseModel):
+    """
+    Keys to set on the chat's user_metadata. A key sent as null is removed; keys left out are kept. Each value replaces the stored one whole, nested objects included. The merged result must be at most 1024 bytes when serialized compactly.
     """
 
     model_config = ConfigDict(
@@ -1085,6 +1208,38 @@ class BlockStopEvent(BaseModel):
     event: Literal["block_stop"]
 
 
+class CatalogueRouter(BaseModel):
+    """
+    A model router: named as `model` like any model, it chooses one of its
+    candidates for each turn. It has no prices of its own; a turn is billed at
+    the chosen model's, which the run reports.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    candidates: list[str]
+    """
+    The `name`s of the models it may choose. Each is in `models`.
+    """
+    description: str
+    """
+    What it does, including what it sends to the vendor.
+    """
+    display_name: str
+    fallback_model: str
+    """
+    The `name` of the model it serves when the vendor cannot choose.
+    """
+    id: UUID
+    name: str
+    """
+    The identifier to send as `model` on a run.
+    """
+    vendor: Literal["telluvian"]
+    vendor_label: str
+
+
 class ChatCreated(BaseModel):
     """
     The new chat, including its immutable namespace, labels, metadata and creation time.
@@ -1140,6 +1295,7 @@ class ChatSummary(BaseModel):
     namespace: Namespace | None
     title: ChatTitle | None
     updated_at: AwareDatetime
+    usage: ChatUsage | None = None
     user_metadata: UserMetadata
 
 
@@ -1247,6 +1403,28 @@ class DeltaEvent(BaseModel):
         ),
     ]
     event: Literal["delta"]
+
+
+class FallbackRoute(BaseModel):
+    """
+    The router's fallback model, because the vendor's choice was unusable.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["fallback"]
+    reason: (
+        Literal[
+            "not_configured",
+            "timeout",
+            "unavailable",
+            "unknown_model",
+            "no_candidates",
+            "no_question",
+        ]
+        | str
+    )
 
 
 class GlobalInstructionReplacedWarning(BaseModel):
@@ -1631,6 +1809,38 @@ class RunInspection(BaseModel):
     usage: Usage | None
 
 
+class RunSummary(BaseModel):
+    """
+    One run in a chat's run listing: [`RunInspection`] without the chat it
+    belongs to, which the path already names, and without the manifest, which
+    can be large. `GET /api/v1/runs/{id}` has both.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    completed_at: AwareDatetime | None
+    cost: str | None
+    """
+    What it was charged, once settled.
+    """
+    created_at: AwareDatetime
+    error: str | None
+    id: UUID
+    is_live: bool
+    latency_ms: int | None
+    model: str
+    origin: Literal["customer", "compaction"] | str
+    """
+    `compaction` runs are Twigg's own context management on this chat, and
+    billed like the rest.
+    """
+    provider_request_id: str | None
+    settled_at: AwareDatetime | None
+    status: Literal["running", "succeeded", "failed", "cancelled"] | str
+    usage: Usage | None
+
+
 class SubmittedToolResult(BaseModel):
     """
     The answer to a tool call the model made.
@@ -1639,6 +1849,7 @@ class SubmittedToolResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    client_data: ClientData | None = None
     is_error: bool | None = None
     """
     Anthropic's `tool_result.is_error`. Dropped when translating to a
@@ -1796,6 +2007,25 @@ class TruncationOver(BaseModel):
     """
 
 
+class UpdateChatRequest(BaseModel):
+    """
+    Body for [`update`]. Every field is optional, and a field left out is left
+    alone.
+
+    `title` and `description` sent as `null` or `""` are removed, the same
+    coercion create applies, so clearing a form field clears the label.
+    `namespace` and `external_id` are not here and are refused as unknown
+    fields rather than ignored: a client that sent one expected it to change.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    description: ChatDescription | None = None
+    title: ChatTitle | None = None
+    user_metadata: UserMetadataPatch | None = None
+
+
 class UsageRow(UsageTotals):
     """
     One row of a report: an optional bucket, an optional group, and the measures.
@@ -1903,26 +2133,6 @@ class ChatPage(BaseModel):
     last_id: UUID | None
 
 
-class ConfigWarningsEventData(BaseModel):
-    """
-    Configuration warnings; emitted second, and may repeat after compaction.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    warnings: list[
-        WarningConfigWarning2
-        | WarningConfigWarning3
-        | WarningConfigWarning4
-        | WarningConfigWarning5
-        | WarningConfigWarning6
-        | WarningConfigWarning7
-        | WarningConfigWarning8
-        | WarningConfigWarning9
-    ]
-
-
 class ContextBudget(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1992,6 +2202,7 @@ class HistoryPart(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    client_data: ClientData | None = None
     created_at: AwareDatetime
     id: UUID
     media: list[HistoryMedia] | None = None
@@ -2121,6 +2332,40 @@ class MediaCapabilities(BaseModel):
     user: MediaPolicy
 
 
+class ModelRoutedWarning(BaseModel):
+    """
+    The request named a router, and this is the model it chose. Always
+    present on a routed turn, so the customer can see what ran and why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: Literal["model_routed"]
+    decision: Annotated[
+        Annotated[ChosenRoute, Tag("chosen")]
+        | Annotated[ToolLoopRoute, Tag("tool_loop")]
+        | Annotated[RetryRoute, Tag("retry")]
+        | Annotated[FallbackRoute, Tag("fallback")]
+        | Annotated[UnknownRouteDecision, Tag("__unknown__")],
+        _tagged(
+            "kind",
+            (
+                "chosen",
+                "tool_loop",
+                "retry",
+                "fallback",
+            ),
+        ),
+    ]
+    """
+    How a routed turn's model was decided. Reported to the customer, so a
+    fallback is never silent.
+    """
+    model: str
+    router: str
+
+
 class PublishContextBudgetRequest(BaseModel):
     """
     Body for publishing a context budget.
@@ -2154,70 +2399,6 @@ class PublishToolsRequest(BaseModel):
     namespace: Namespace | None = None
 
 
-class ResolvedBudget(BaseModel):
-    """
-    The budget half of a resolution.
-
-    Separate from [`ResolvedConfig`] because it is resolved at a different moment
-    and over one axis more: config resolution answers "what is configured for
-    this namespace", which a customer can ask without naming a model, while a
-    budget is resolved over namespace *and* model and only means something once a
-    run has picked one.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    budget: ContextBudget
-    """
-    Always present: an org that has published nothing gets the platform
-    default rather than no budget at all.
-    """
-    model_id: UUID | None = None
-    namespace: Namespace | None = None
-    source: Annotated[
-        Annotated[PlatformDefaultBudgetSource, Tag("platform_default")]
-        | Annotated[PolicyBudgetSource, Tag("policy")]
-        | Annotated[UnknownBudgetSource, Tag("__unknown__")],
-        _tagged(
-            "kind",
-            (
-                "platform_default",
-                "policy",
-            ),
-        ),
-    ]
-    """
-    The configuration scope and model tag that supplied the resolved context budget.
-    """
-    warnings: list[
-        Annotated[
-            Annotated[ToolShadowedWarning, Tag("tool_shadowed")]
-            | Annotated[GlobalInstructionReplacedWarning, Tag("global_instruction_replaced")]
-            | Annotated[GlobalToolsReplacedWarning, Tag("global_tools_replaced")]
-            | Annotated[RetentionPolicyOverriddenWarning, Tag("retention_policy_overridden")]
-            | Annotated[ContextBudgetResolvedAtWarning, Tag("context_budget_resolved_at")]
-            | Annotated[HistoryDroppedWarning, Tag("history_dropped")]
-            | Annotated[ProviderKeyPausedWarning, Tag("provider_key_paused")]
-            | Annotated[ProviderKeyFellThroughWarning, Tag("provider_key_fell_through")]
-            | Annotated[UnknownConfigWarning, Tag("__unknown__")],
-            _tagged(
-                "code",
-                (
-                    "tool_shadowed",
-                    "global_instruction_replaced",
-                    "global_tools_replaced",
-                    "retention_policy_overridden",
-                    "context_budget_resolved_at",
-                    "history_dropped",
-                    "provider_key_paused",
-                    "provider_key_fell_through",
-                ),
-            ),
-        ]
-    ]
-
-
 class RunEvent(BaseModel):
     """
     Always first: identifiers and tool calls closed by this submission.
@@ -2228,6 +2409,26 @@ class RunEvent(BaseModel):
     )
     data: RunEventData
     event: Literal["run"]
+
+
+class RunPage(BaseModel):
+    """
+    One page of a chat's runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: list[RunSummary]
+    """
+    Newest first, whichever direction was paged.
+    """
+    first_id: UUID | None
+    has_more: bool
+    """
+    Whether more runs exist in the direction being paged.
+    """
+    last_id: UUID | None
 
 
 class TranslationWarningsEventData(BaseModel):
@@ -2276,6 +2477,12 @@ class UsageReport(BaseModel):
     window: UsageWindow
 
 
+class WarningConfigWarning10(ModelRoutedWarning, WarningConfigWarning1):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class CatalogueModel(BaseModel):
     """
     One catalogue entry, in full. The list and the detail share it: a detail
@@ -2304,7 +2511,10 @@ class CatalogueModel(BaseModel):
     """
     The identifier to send as `model` on a run.
     """
-    provider: Literal["anthropic", "openai", "google", "xai", "fireworks", "openrouter"] | str
+    provider: (
+        Literal["anthropic", "openai", "google", "xai", "fireworks", "openrouter", "abliteration"]
+        | str
+    )
     provider_label: str
     rates: BilledRates
     supports_reasoning: bool
@@ -2321,7 +2531,7 @@ class CatalogueModelResponse(CatalogueModel):
     markup_percent: str
 
 
-class ConfigWarningsEvent(BaseModel):
+class ConfigWarningsEventData(BaseModel):
     """
     Configuration warnings; emitted second, and may repeat after compaction.
     """
@@ -2329,8 +2539,17 @@ class ConfigWarningsEvent(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    data: ConfigWarningsEventData
-    event: Literal["config_warnings"]
+    warnings: list[
+        WarningConfigWarning2
+        | WarningConfigWarning3
+        | WarningConfigWarning4
+        | WarningConfigWarning5
+        | WarningConfigWarning6
+        | WarningConfigWarning7
+        | WarningConfigWarning8
+        | WarningConfigWarning9
+        | WarningConfigWarning10
+    ]
 
 
 class CreateResponseRequest(BaseModel):
@@ -2451,6 +2670,72 @@ class HistoryPageResponse(BaseModel):
     """
 
 
+class ResolvedBudget(BaseModel):
+    """
+    The budget half of a resolution.
+
+    Separate from [`ResolvedConfig`] because it is resolved at a different moment
+    and over one axis more: config resolution answers "what is configured for
+    this namespace", which a customer can ask without naming a model, while a
+    budget is resolved over namespace *and* model and only means something once a
+    run has picked one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    budget: ContextBudget
+    """
+    Always present: an org that has published nothing gets the platform
+    default rather than no budget at all.
+    """
+    model_id: UUID | None = None
+    namespace: Namespace | None = None
+    source: Annotated[
+        Annotated[PlatformDefaultBudgetSource, Tag("platform_default")]
+        | Annotated[PolicyBudgetSource, Tag("policy")]
+        | Annotated[UnknownBudgetSource, Tag("__unknown__")],
+        _tagged(
+            "kind",
+            (
+                "platform_default",
+                "policy",
+            ),
+        ),
+    ]
+    """
+    The configuration scope and model tag that supplied the resolved context budget.
+    """
+    warnings: list[
+        Annotated[
+            Annotated[ToolShadowedWarning, Tag("tool_shadowed")]
+            | Annotated[GlobalInstructionReplacedWarning, Tag("global_instruction_replaced")]
+            | Annotated[GlobalToolsReplacedWarning, Tag("global_tools_replaced")]
+            | Annotated[RetentionPolicyOverriddenWarning, Tag("retention_policy_overridden")]
+            | Annotated[ContextBudgetResolvedAtWarning, Tag("context_budget_resolved_at")]
+            | Annotated[HistoryDroppedWarning, Tag("history_dropped")]
+            | Annotated[ProviderKeyPausedWarning, Tag("provider_key_paused")]
+            | Annotated[ProviderKeyFellThroughWarning, Tag("provider_key_fell_through")]
+            | Annotated[ModelRoutedWarning, Tag("model_routed")]
+            | Annotated[UnknownConfigWarning, Tag("__unknown__")],
+            _tagged(
+                "code",
+                (
+                    "tool_shadowed",
+                    "global_instruction_replaced",
+                    "global_tools_replaced",
+                    "retention_policy_overridden",
+                    "context_budget_resolved_at",
+                    "history_dropped",
+                    "provider_key_paused",
+                    "provider_key_fell_through",
+                    "model_routed",
+                ),
+            ),
+        ]
+    ]
+
+
 class ResponseBody(BaseModel):
     """
     A completed turn: the model's output in order, its text concatenated, the tool calls now waiting for results, and the run's usage and cost.
@@ -2474,6 +2759,7 @@ class ResponseBody(BaseModel):
         | WarningConfigWarning7
         | WarningConfigWarning8
         | WarningConfigWarning9
+        | WarningConfigWarning10
     ]
     content: list[
         Annotated[
@@ -2668,6 +2954,22 @@ class Catalogue(BaseModel):
     Present when a signed-in caller's organisation has its own rate; the
     prices then reflect that rate rather than the default.
     """
+    routers: list[CatalogueRouter]
+    """
+    Routers that choose among `models` per turn.
+    """
+
+
+class ConfigWarningsEvent(BaseModel):
+    """
+    Configuration warnings; emitted second, and may repeat after compaction.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    data: ConfigWarningsEventData
+    event: Literal["config_warnings"]
 
 
 ResponseEvent = TypeAliasType(
@@ -2867,6 +3169,7 @@ class ResolvedConfig(BaseModel):
             | Annotated[HistoryDroppedWarning, Tag("history_dropped")]
             | Annotated[ProviderKeyPausedWarning, Tag("provider_key_paused")]
             | Annotated[ProviderKeyFellThroughWarning, Tag("provider_key_fell_through")]
+            | Annotated[ModelRoutedWarning, Tag("model_routed")]
             | Annotated[UnknownConfigWarning, Tag("__unknown__")],
             _tagged(
                 "code",
@@ -2879,6 +3182,7 @@ class ResolvedConfig(BaseModel):
                     "history_dropped",
                     "provider_key_paused",
                     "provider_key_fell_through",
+                    "model_routed",
                 ),
             ),
         ]

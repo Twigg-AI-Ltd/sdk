@@ -60,18 +60,40 @@ CALLS: dict[str, tuple[Call, Any]] = {
     ),
     "get": (lambda t: t.meta.version(), {"version": "", "commit": "", "api_version": ""}),
     "listPublicUpdates": (lambda t: t.meta.updates(), []),
-    "listChats": (lambda t: t.chats.list(namespace="acme", after_id=ID, limit=10), PAGE),
+    "listChats": (
+        lambda t: t.chats.list(namespace="acme", after_id=ID, limit=10, include="usage"),
+        PAGE,
+    ),
+    "deleteChatsByNamespace": (
+        lambda t: t.chats.delete_by_namespace("swarm/run-abc"),
+        {"deleted": 0},
+    ),
     "createChat": (lambda t: t.chats.create(namespace="acme", title="Billing"), CHAT),
-    "getChat": (lambda t: t.chats.get(ID), chat_summary(1)),
+    "getChat": (lambda t: t.chats.get(ID, include="usage"), chat_summary(1)),
+    "updateChat": (lambda t: t.chats.update(ID, title="Billing"), chat_summary(1)),
+    "listChatRuns": (lambda t: t.chats.runs(ID, after_id=ID, limit=10), PAGE),
     "deleteChat": (lambda t: t.chats.delete(ID), None),
     "openChatByExternalId": (
         lambda t: t.chats.open_by_external_id("+44 7700", namespace="acme"),
         chat_summary(1),
     ),
-    "getChatByExternalId": (lambda t: t.chats.get_by_external_id("+447700"), chat_summary(1)),
+    "getChatByExternalId": (
+        lambda t: t.chats.get_by_external_id("+447700", include="usage"),
+        chat_summary(1),
+    ),
+    "updateChatByExternalId": (
+        lambda t: t.chats.update_by_external_id("+447700", user_metadata={"tier": None}),
+        chat_summary(1),
+    ),
+    "listChatRunsByExternalId": (
+        lambda t: t.chats.runs_by_external_id("+447700", before_id=ID),
+        PAGE,
+    ),
     "deleteChatByExternalId": (lambda t: t.chats.delete_by_external_id("+447700"), None),
     "getChatHistoryByExternalId": (
-        lambda t: t.chats.history_by_external_id("+447700", after_ordinal=-1, limit=5),
+        lambda t: t.chats.history_by_external_id(
+            "+447700", after_ordinal=-1, limit=5, include_client_data=True
+        ),
         history_page([]),
     ),
     "importChatByExternalId": (
@@ -114,9 +136,13 @@ CALLS: dict[str, tuple[Call, Any]] = {
         lambda t: t.usage.query(range="7d", bin="day", group_by="model", namespace="acme"),
         "skip-parse",
     ),
+    "deleteConfiguration": (
+        lambda t: t.config.delete("swarm/run-abc"),
+        {"instructions": 0, "tools": 0, "retention_policies": 0, "context_budgets": 0},
+    ),
     "listCatalogue": (
         lambda t: t.catalogue.list(),
-        {"models": [], "markup_percent": "0", "organisation_specific": False},
+        {"models": [], "routers": [], "markup_percent": "0", "organisation_specific": False},
     ),
     "getCatalogueModel": (lambda t: t.catalogue.get("claude-opus-5"), "skip-parse"),
     "getCatalogueMarkdown": (lambda t: t.catalogue.markdown(), "text"),

@@ -28,13 +28,14 @@ pip install twigg && python python/02_send.py
 | 10 | Errors |
 | 11 | Abort a turn mid-stream |
 | 12 | TypeScript: `MockTwigg` for tests, no network. Python: the async client |
-| 13 | Delete the chats the examples made |
+| 13 | Delete the chats the examples made, by namespace prefix |
 | 14 | History with typed parts (`HistoryPrompt`, `HistoryToolCall`, ...) |
-| 15 | Inspect a run, wait for its cost to settle, query usage |
+| 15 | Inspect a run, wait for its cost to settle, list a chat's runs and totals, query usage |
 | 16 | The tool loop by hand: pending calls and `tool_result` parts |
 | 17 | TypeScript: forward a stream to a browser |
 | 18 | A chat addressed by your own id (a phone number): created by its first message |
 | 19 | Import a conversation from elsewhere into a chat by your own id, then continue it |
+| 20 | Rename a chat, merge its metadata, and keep your own `client_data` beside a message |
 
 `cli/` is configuration as code with `@twigg/cli`: `bash cli/run.sh` validates, plans, applies,
 re-plans, resolves and then withdraws `cli/twigg.config.yaml` in the `examples/cli` namespace.

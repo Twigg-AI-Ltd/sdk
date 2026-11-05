@@ -8,15 +8,22 @@ import type {
   ChatId,
   ChatPage,
   ChatSummary,
+  ChatsDeleted,
   CreateChatRequest,
   ExternalChatId,
+  GetChatQuery,
   HistoryPageResponse,
   HistoryPart,
   HistoryQuery,
   ImportChatRequest,
   ImportResult,
   ListChatsQuery,
+  ListRunsQuery,
+  Namespace,
   OpenChatRequest,
+  RunPage,
+  RunSummary,
+  UpdateChatRequest,
 } from "../types.js";
 
 /**
@@ -38,6 +45,39 @@ export type HistoryPage = DirectionalPage<HistoryPart> & {
   /** Ordinal of the last part in `data`; `null` when the page is empty. */
   readonly lastOrdinal: number | null;
 };
+
+type IdCursors = { after_id?: string | null; before_id?: string | null };
+
+/**
+ * Page a listing whose items come newest first and whose cursors are ids: `last_id` pages older,
+ * `first_id` newer. Iteration follows the direction the first query chose.
+ */
+function byId<T, Q extends IdCursors>(
+  query: Q,
+  fetch: (query: Q) => Promise<{
+    data: T[];
+    has_more: boolean;
+    first_id?: string | null;
+    last_id?: string | null;
+  }>,
+): PagePromise<T> {
+  const newer = query.before_id !== undefined && query.before_id !== null;
+  const load = async (q: Q): Promise<DirectionalPage<T>> => {
+    const page = await fetch(q);
+    const cursor = newer ? page.first_id : page.last_id;
+    const next =
+      cursor === null || cursor === undefined
+        ? undefined
+        : () =>
+            load(
+              newer
+                ? { ...q, before_id: cursor, after_id: undefined }
+                : { ...q, after_id: cursor, before_id: undefined },
+            );
+    return new DirectionalPage(page.data, page.has_more, next, newer);
+  };
+  return new PagePromise(() => load(query));
+}
 
 export class Chats extends Resource {
   /** @internal Set by the client so `open` can return a chat handle. */
@@ -90,9 +130,34 @@ export class Chats extends Resource {
     return this.handle(chat.id, defaults, chat);
   }
 
-  /** The chat holding `externalId`. Unknown and deleted ids are a 404. */
-  getByExternalId(externalId: ExternalChatId, options?: RequestOptions): Promise<ChatSummary> {
-    return this.getAt({ externalId }, options);
+  /**
+   * The chat holding `externalId`. Unknown and deleted ids are a 404. `{ include: "usage" }` adds
+   * the chat's cost and token totals as `usage`.
+   */
+  getByExternalId(
+    externalId: ExternalChatId,
+    query: GetChatQuery = {},
+    options?: RequestOptions,
+  ): Promise<ChatSummary> {
+    return this.getAt({ externalId }, query, options);
+  }
+
+  /** Change the chat holding `externalId`; see `update`. Its external id cannot be changed. */
+  updateByExternalId(
+    externalId: ExternalChatId,
+    body: UpdateChatRequest,
+    options?: RequestOptions,
+  ): Promise<ChatSummary> {
+    return this.updateAt({ externalId }, body, options);
+  }
+
+  /** The runs on the chat holding `externalId`; see `runs`. */
+  runsByExternalId(
+    externalId: ExternalChatId,
+    query: ListRunsQuery = {},
+    options?: RequestOptions,
+  ): PagePromise<RunSummary> {
+    return this.runsAt({ externalId }, query, options);
   }
 
   /** Delete the chat holding `externalId`. The id is freed for a new chat. */
@@ -133,19 +198,101 @@ export class Chats extends Resource {
     );
   }
 
-  get(chatId: ChatId, options?: RequestOptions): Promise<ChatSummary> {
-    return this.getAt(chatId, options);
+  /**
+   * A chat owned by your organisation; another's, or a missing one, is a 404.
+   * `{ include: "usage" }` adds the chat's cost and token totals as `usage`.
+   */
+  get(chatId: ChatId, query: GetChatQuery = {}, options?: RequestOptions): Promise<ChatSummary> {
+    return this.getAt(chatId, query, options);
   }
 
+  /**
+   * Delete a chat and its history. A turn in progress is aborted, and the content is
+   * unrecoverable once this returns. Usage and cost records are kept, so `runs.get` still answers.
+   */
   delete(chatId: ChatId, options?: RequestOptions): Promise<void> {
     return this.deleteAt(chatId, options);
   }
 
-  /** @internal */
-  getAt(chat: ChatRef, options?: RequestOptions): Promise<ChatSummary> {
+  /**
+   * Change a chat's `title`, `description` or `user_metadata`; fields left out are unchanged. A
+   * title or description sent as `null` or `""` is removed. `user_metadata` is merged one
+   * top-level key at a time: keys sent replace the stored ones and keys sent as `null` are
+   * removed. The namespace and external id cannot be changed. Returns the updated chat.
+   */
+  update(chatId: ChatId, body: UpdateChatRequest, options?: RequestOptions): Promise<ChatSummary> {
+    return this.updateAt(chatId, body, options);
+  }
+
+  /**
+   * List a chat's runs, newest first: your turns and the compaction runs Twigg made for the chat,
+   * with status, model, usage, cost and timing. The context manifest is left out; `runs.get` has
+   * it.
+   *
+   * Iterating walks towards older runs by default. Passing `before_id` pages towards newer runs
+   * instead, and iteration then yields them oldest first.
+   */
+  runs(
+    chatId: ChatId,
+    query: ListRunsQuery = {},
+    options?: RequestOptions,
+  ): PagePromise<RunSummary> {
+    return this.runsAt(chatId, query, options);
+  }
+
+  /**
+   * Delete every chat in `namespacePrefix` and every namespace beneath it, by path segment:
+   * `swarm/run-abc` covers `swarm/run-abc/agent-17` but not `swarm/run-abcd`. Each is deleted as
+   * `delete` deletes one. Returns how many live chats were deleted. Pair it with `config.delete`
+   * to remove the subtree's configuration too.
+   */
+  deleteByNamespace(namespacePrefix: Namespace, options?: RequestOptions): Promise<ChatsDeleted> {
     return this.transport.json(
-      { method: "GET", path: chatPath(chat), auth: "required", idempotent: true },
+      {
+        method: "DELETE",
+        path: "/api/v1/chats",
+        query: { namespace_prefix: namespacePrefix },
+        auth: "required",
+        idempotent: true,
+      },
       options,
+    );
+  }
+
+  /** @internal */
+  getAt(chat: ChatRef, query: GetChatQuery = {}, options?: RequestOptions): Promise<ChatSummary> {
+    return this.transport.json(
+      { method: "GET", path: chatPath(chat), query, auth: "required", idempotent: true },
+      options,
+    );
+  }
+
+  /** @internal */
+  updateAt(chat: ChatRef, body: UpdateChatRequest, options?: RequestOptions): Promise<ChatSummary> {
+    // A merge: sending the same change again leaves the chat as the first left it.
+    return this.transport.json(
+      { method: "PATCH", path: chatPath(chat), body, auth: "required", idempotent: true },
+      options,
+    );
+  }
+
+  /** @internal */
+  runsAt(
+    chat: ChatRef,
+    query: ListRunsQuery = {},
+    options?: RequestOptions,
+  ): PagePromise<RunSummary> {
+    return byId<RunSummary, ListRunsQuery>(query, (q) =>
+      this.transport.json<RunPage>(
+        {
+          method: "GET",
+          path: `${chatPath(chat)}/runs`,
+          query: q,
+          auth: "required",
+          idempotent: true,
+        },
+        options,
+      ),
     );
   }
 
@@ -164,25 +311,12 @@ export class Chats extends Resource {
    * chats instead, and iteration then yields them oldest first.
    */
   list(query: ListChatsQuery = {}, options?: RequestOptions): PagePromise<ChatSummary> {
-    const newer = query.before_id !== undefined && query.before_id !== null;
-    const load = async (q: ListChatsQuery): Promise<DirectionalPage<ChatSummary>> => {
-      const page = await this.transport.json<ChatPage>(
+    return byId<ChatSummary, ListChatsQuery>(query, (q) =>
+      this.transport.json<ChatPage>(
         { method: "GET", path: "/api/v1/chats", query: q, auth: "required", idempotent: true },
         options,
-      );
-      const cursor = newer ? page.first_id : page.last_id;
-      const next =
-        cursor === null || cursor === undefined
-          ? undefined
-          : () =>
-              load(
-                newer
-                  ? { ...q, before_id: cursor, after_id: undefined }
-                  : { ...q, after_id: cursor, before_id: undefined },
-              );
-      return new DirectionalPage(page.data, page.has_more, next, newer);
-    };
-    return new PagePromise(() => load(query));
+      ),
+    );
   }
 
   /**

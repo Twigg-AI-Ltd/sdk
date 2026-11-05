@@ -40,7 +40,11 @@ def test_fails_before_sending_when_an_authenticated_call_has_no_key(
 def test_calls_public_endpoints_without_a_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TWIGG_API_KEY", raising=False)
     twigg, api, _ = setup(api_key=None)
-    api.reply(json_response({"models": [], "markup_percent": "0", "organisation_specific": False}))
+    api.reply(
+        json_response(
+            {"models": [], "routers": [], "markup_percent": "0", "organisation_specific": False}
+        )
+    )
     twigg.catalogue.list()
     assert "authorization" not in api.last.headers
 
